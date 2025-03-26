@@ -108,8 +108,6 @@ func (service *HTTPRestService) requestIPConfigHandlerHelper(ctx context.Context
 
 	podIPInfoResult = append(podIPInfoResult, podIPInfo...)
 
-	logger.Printf("[requestIPConfigHandlerHelper] PodIPInfo before returning to IPAM: %+v", podIPInfoResult)
-
 	return &cns.IPConfigsResponse{
 		Response: cns.Response{
 			ReturnCode: types.Success,
@@ -1003,7 +1001,7 @@ func (service *HTTPRestService) AssignAvailableIPConfigs(podInfo cns.PodInfo) ([
 	//  Map used to get the number of IPFamilies across all NCs
 	ipFamilies := map[cns.IPFamily]struct{}{}
 
-	// Gets the IPFamilies from all NCs and stores them in a map. This will be ued to determine the amount of IPs to return
+	// Gets the IPFamilies from all NCs and store them in a map. This will be used to determine the number of IPs to return
 	for ncID := range service.state.ContainerStatus {
 		for ipFamily := range service.state.ContainerStatus[ncID].CreateNetworkContainerRequest.IPFamilies {
 			ipFamilies[ipFamily] = struct{}{}
@@ -1012,16 +1010,18 @@ func (service *HTTPRestService) AssignAvailableIPConfigs(podInfo cns.PodInfo) ([
 
 	// Makes sure we have at least one IPFamily across all NCs
 	numOfIPFamilies := len(ipFamilies)
-	if numOfIPFamilies == 0 {
-		return nil, ErrNoIPFamilies
+
+	numberOfIPs := numOfNCs
+	if numOfIPFamilies != 0 {
+		numberOfIPs = numOfIPFamilies
 	}
 
 	service.Lock()
 	defer service.Unlock()
 	// Creates a slice of PodIpInfo with the size as number of NCs to hold the result for assigned IP configs
-	podIPInfo := make([]cns.PodIpInfo, numOfIPFamilies)
+	podIPInfo := make([]cns.PodIpInfo, numberOfIPs)
 	// This map is used to store whether or not we have found an available IP from an NC when looping through the pool
-	ipsToAssign := make(map[cns.IPFamily]cns.IPConfigurationStatus)
+	ipsToAssign := make(map[string]cns.IPConfigurationStatus)
 
 	// Searches for available IPs in the pool
 	for _, ipState := range service.PodIPConfigState {
@@ -1034,26 +1034,28 @@ func (service *HTTPRestService) AssignAvailableIPConfigs(podInfo cns.PodInfo) ([
 			ipStateFamily = cns.IPv6Family
 		}
 
+		key := ipState.NCID + string(ipStateFamily)
+
 		// check if the IP with the same family type exists already
-		if _, IPFamilyAlreadyMarkedForAssignment := ipsToAssign[ipStateFamily]; IPFamilyAlreadyMarkedForAssignment {
+		if _, ncIPFamilyAlreadyMarkedForAssignment := ipsToAssign[key]; ncIPFamilyAlreadyMarkedForAssignment {
 			continue
 		}
 		// Checks if the current IP is available
 		if ipState.GetState() != types.Available {
 			continue
 		}
-		ipsToAssign[ipStateFamily] = ipState
-		// Once one IP per container is found break out of the loop and stop searching
-		if len(ipsToAssign) == numOfIPFamilies {
+		ipsToAssign[key] = ipState
+		// Once numberOfIPs per container is found break out of the loop and stop searching
+		if len(ipsToAssign) == numberOfIPs {
 			break
 		}
 	}
 
-	// Checks to make sure we found one IP for each IPFamily
-	if len(ipsToAssign) != numOfIPFamilies {
+	// Checks to make sure we found one IP for each NCxIPFamily
+	if len(ipsToAssign) != numberOfIPs {
 		for ncID := range service.state.ContainerStatus {
 			for ipFamily := range service.state.ContainerStatus[ncID].CreateNetworkContainerRequest.IPFamilies {
-				if _, found := ipsToAssign[ipFamily]; found {
+				if _, found := ipsToAssign[ncID+string(ipFamily)]; found {
 					continue
 				}
 				return podIPInfo, errors.Errorf("not enough IPs available of type %s for %s, waiting on Azure CNS to allocate more with NC Status: %s",

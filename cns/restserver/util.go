@@ -848,10 +848,7 @@ func (service *HTTPRestService) populateIPConfigInfoUntransacted(ipConfigStatus 
 	podIPInfo.HostPrimaryIPInfo.Subnet = primaryHostInterface.Subnet
 	podIPInfo.HostPrimaryIPInfo.Gateway = primaryHostInterface.Gateway
 	podIPInfo.MacAddress = ncStatus.CreateNetworkContainerRequest.NetworkInterfaceInfo.MACAddress
-	fmt.Printf("podIPInfo from NNC: %+v", podIPInfo)
-	podIPInfo.NICType = cns.InfraNIC
-	//podIPInfo.MacAddress = "00-0D-3A-07-2C-D1"
-	fmt.Printf("podIPInfo after adding interface new: %+v", podIPInfo)
+	podIPInfo.NICType = cns.InfraNIC // Update this to DelegatedNIC when it is Prefix on NIC v6
 
 	return nil
 }

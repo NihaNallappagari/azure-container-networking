@@ -81,7 +81,7 @@ func (p *IPAMPlugin) CmdAdd(args *cniSkel.CmdArgs) error {
 	p.logger.Debug("Making request to CNS")
 	// if this fails, the caller plugin should execute again with cmdDel before returning error.
 	// https://www.cni.dev/docs/spec/#delegated-plugin-execution-procedure
-	resp, err := p.cnsClient.RequestIPs(context.TODO(), req) // need to add interfaces to this response
+	resp, err := p.cnsClient.RequestIPs(context.TODO(), req)
 	if err != nil {
 		if cnscli.IsUnsupportedAPI(err) {
 			p.logger.Error("Failed to request IPs using RequestIPs from CNS, going to try RequestIPAddress", zap.Error(err), zap.Any("request", req))
@@ -113,10 +113,9 @@ func (p *IPAMPlugin) CmdAdd(args *cniSkel.CmdArgs) error {
 		}
 	}
 	p.logger.Debug("Received CNS IP config response", zap.Any("response", resp))
-	// resp.PodIPInfo
 
 	// Get Pod IP and gateway IP from ip config response
-	podIPNet, gatewayIP, err := ipconfig.ProcessIPConfigsResp(resp) // need to get interfaces out of the response and add it here
+	podIPNet, gatewayIP, err := ipconfig.ProcessIPConfigsResp(resp)
 	if err != nil {
 		p.logger.Error("Failed to interpret CNS IPConfigResponse", zap.Error(err), zap.Any("response", resp))
 		return cniTypes.NewError(ErrProcessIPConfigResponse, err.Error(), "failed to interpret CNS IPConfigResponse")
@@ -133,7 +132,6 @@ func (p *IPAMPlugin) CmdAdd(args *cniSkel.CmdArgs) error {
 			}
 
 			ipConfig.Gateway = (*gatewayIP)[i]
-			p.logger.Debug("Gatewayv4", zap.String("Gatewayv4", ipConfig.Gateway.String()))
 		} else {
 			ipConfig.Address = net.IPNet{
 				IP:   net.ParseIP(ipNet.Addr().String()),
@@ -141,27 +139,22 @@ func (p *IPAMPlugin) CmdAdd(args *cniSkel.CmdArgs) error {
 			}
 
 			ipConfig.Gateway = (*gatewayIP)[i]
-			p.logger.Debug("Gatewayv6", zap.String("Gatewayv6", ipConfig.Gateway.String()))
-			//ipConfig.Gateway = net.ParseIP("fd00:aec6:6946:1::")
-			if ipConfig.Gateway == nil {
-				//ipConfig.Gateway = net.ParseIP("fd00:aec6:6946:1::")
-				//p.logger.Debug("DummyGatewayv6", zap.String("Gatewayv6", ipConfig.Gateway.String()))
-			}
 		}
 		cniResult.IPs[i] = ipConfig
 	}
 
-	p.logger.Info("MACAddress:", zap.Any("MACAddress", resp.PodIPInfo[0].MacAddress))
-
 	cniResult.Interfaces = make([]*types100.Interface, 1)
-	interface_test := &types100.Interface{
-		Name: "eth1",
-		//Mac:  "00-0D-3A-6F-11-DE",
-		Mac: resp.PodIPInfo[0].MacAddress,
+	interfaceMap := make(map[string]bool)
+	cniResult.Interfaces = make([]*types100.Interface, 0, len(resp.PodIPInfo))
+	for _, podIPInfo := range resp.PodIPInfo {
+		if _, exists := interfaceMap[podIPInfo.InterfaceName]; !exists {
+			cniResult.Interfaces = append(cniResult.Interfaces, &types100.Interface{
+				Name: podIPInfo.InterfaceName, // Populate interface name based on MacAddress
+				Mac:  podIPInfo.MacAddress,
+			})
+			interfaceMap[podIPInfo.InterfaceName] = true
+		}
 	}
-	cniResult.Interfaces[0] = interface_test
-
-	p.logger.Info("Created CNIResult:", zap.Any("result", cniResult))
 
 	// Get versioned result
 	versionedCniResult, err := cniResult.GetAsVersion(nwCfg.CNIVersion)
