@@ -1711,7 +1711,6 @@ func getPodInfoByIPProvider(
 func createOrUpdateNodeInfoCRD(ctx context.Context, restConfig *rest.Config, node *corev1.Node) error {
 	imdsCli := imds.NewClient()
 	vmUniqueID, err := imdsCli.GetVMUniqueID(ctx)
-
 	if err != nil {
 		return errors.Wrap(err, "error getting vm unique ID from imds")
 	}
