@@ -143,17 +143,24 @@ func (p *IPAMPlugin) CmdAdd(args *cniSkel.CmdArgs) error {
 		cniResult.IPs[i] = ipConfig
 	}
 
-	cniResult.Interfaces = make([]*types100.Interface, 1)
-	interfaceMap := make(map[string]bool)
-	cniResult.Interfaces = make([]*types100.Interface, 0, len(resp.PodIPInfo))
+	cniResult.Interfaces = []*types100.Interface{}
+	seenInterfaces := map[string]bool{}
+
 	for _, podIPInfo := range resp.PodIPInfo {
-		if _, exists := interfaceMap[podIPInfo.InterfaceName]; !exists {
-			cniResult.Interfaces = append(cniResult.Interfaces, &types100.Interface{
-				Name: podIPInfo.InterfaceName, // Populate interface name based on MacAddress
-				Mac:  podIPInfo.MacAddress,
-			})
-			interfaceMap[podIPInfo.InterfaceName] = true
+		if seenInterfaces[podIPInfo.MacAddress] {
+			continue
 		}
+
+		infMac, err := net.ParseMAC(podIPInfo.MacAddress)
+		if err != nil {
+			p.logger.Error("Failed to parse interface MAC address", zap.Error(err), zap.String("macAddress", podIPInfo.MacAddress))
+			return cniTypes.NewError(cniTypes.ErrUnsupportedField, err.Error(), "failed to parse interface MAC address")
+		}
+
+		cniResult.Interfaces = append(cniResult.Interfaces, &types100.Interface{
+			Mac: infMac.String(),
+		})
+		seenInterfaces[podIPInfo.MacAddress] = true
 	}
 
 	// Get versioned result
