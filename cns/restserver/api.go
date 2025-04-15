@@ -1314,6 +1314,7 @@ func (service *HTTPRestService) nmAgentNCListHandler(w http.ResponseWriter, r *h
 	switch r.Method {
 	case http.MethodGet:
 		ncVersionList, ncVersionerr := service.nma.GetNCVersionList(ctx)
+		logger.Printf("[test pocv6] NmAgentNCListHandler list: %v", ncVersionList)
 		if ncVersionerr != nil {
 			returnCode = types.NmAgentNCVersionListError
 			returnMessage = "[Azure-CNS] " + ncVersionerr.Error()
