@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/nmagent/internal"
 	"github.com/pkg/errors"
 )
@@ -232,6 +233,7 @@ func (c *Client) DeleteNetworkContainer(ctx context.Context, dcr DeleteContainer
 }
 
 func (c *Client) GetNCVersionList(ctx context.Context) (NCVersionList, error) {
+	logger.Printf("[pocv6] GetNCVersionList called")
 	req, err := c.buildRequest(ctx, &NCVersionListRequest{})
 	if err != nil {
 		return NCVersionList{}, errors.Wrap(err, "building request")
