@@ -57,6 +57,7 @@ func (service *HTTPRestService) SyncNodeStatus(dncEP, infraVnet, nodeID string, 
 	// try to retrieve NodeInfoResponse from mDNC
 	url := fmt.Sprintf(common.SyncNodeNetworkContainersURLFmt, dncEP, infraVnet, nodeID, dncApiVersion)
 	req, _ := http.NewRequestWithContext(context.TODO(), http.MethodGet, url, nil)
+
 	resp, err := httpc.Do(req)
 	if err == nil {
 		if resp.StatusCode == http.StatusOK {
@@ -83,11 +84,13 @@ func (service *HTTPRestService) SyncNodeStatus(dncEP, infraVnet, nodeID string, 
 	// determine new NCs and NCs to be deleted
 	service.RLock()
 	for ncid := range service.state.ContainerStatus {
+		logger.Printf("NCID to be deleted %s in state", ncid)
 		ncsToBeDeleted[ncid] = true
 	}
 
 	for _, nc := range nodeInfoResponse.NetworkContainers {
 		ncid := nc.NetworkContainerid
+		logger.Printf("NCID to be added %s in state", ncid)
 		delete(ncsToBeDeleted, ncid)
 		if savedNc, exists := service.state.ContainerStatus[ncid]; !exists || savedNc.CreateNetworkContainerRequest.Version < nc.Version {
 			ncsToBeAdded[ncid] = nc
@@ -188,6 +191,7 @@ var errNonExistentContainerStatus = errors.New("nonExistantContainerstatus")
 // all NCs and update the CNS state accordingly. This function returns the the total number of NCs on this VM that have been programmed to
 // some version, NOT the number of NCs that are up-to-date.
 func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMode string) (int, error) {
+	logger.Printf("syncHostNC version: NCs in local state: %v", service.state.ContainerStatus)
 	outdatedNCs := map[string]struct{}{}
 	programmedNCs := map[string]struct{}{}
 	for idx := range service.state.ContainerStatus {
@@ -205,6 +209,7 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
 		if localNCVersion < dncNCVersion {
 			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
+			logger.Printf("pocv6 version nc id is %s, localNCVersion is %d, dncNCVersion is %d", service.state.ContainerStatus[idx].ID, localNCVersion, dncNCVersion)
 		} else if localNCVersion > dncNCVersion {
 			logger.Errorf("NC version from NMAgent is larger than DNC, NC version from NMAgent is %d, NC version from DNC is %d", localNCVersion, dncNCVersion)
 		}
@@ -213,6 +218,7 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 			programmedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
 		}
 	}
+	logger.Printf("pocv6 version outatedNCs is %v", outdatedNCs)
 	if len(outdatedNCs) == 0 {
 		return len(programmedNCs), nil
 	}
@@ -220,6 +226,7 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	if err != nil {
 		return len(programmedNCs), errors.Wrap(err, "failed to get nc version list from nmagent")
 	}
+	logger.Printf("pocv6 version ncVersionListResp is %v", ncVersionListResp)
 
 	nmaNCs := map[string]string{}
 	for _, nc := range ncVersionListResp.Containers {
@@ -227,7 +234,9 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	}
 	hasNC.Set(float64(len(nmaNCs)))
 	for ncID := range outdatedNCs {
+
 		nmaNCVersionStr, ok := nmaNCs[ncID]
+		logger.Printf("pocv6 nma version nc id is %s, nc version is %s", ncID, nmaNCVersionStr)
 		if !ok {
 			// NMA doesn't have this NC that we need programmed yet, bail out
 			continue

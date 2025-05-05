@@ -38,13 +38,16 @@ var _ cns.IPConfigsHandlerMiddleware = (*K8sSWIFTv2Middleware)(nil)
 
 func (k *K8sSWIFTv2Middleware) GetPodInfoForIPConfigsRequest(ctx context.Context, req *cns.IPConfigsRequest) (podInfo cns.PodInfo, respCode types.ResponseCode, message string) {
 	// gets pod info for the specified request
+	logger.Printf("[pocmtpnc] get pod info for ipconfigs request %+v", req)
 	podInfo, pod, respCode, message := k.GetPodInfo(ctx, req)
+	logger.Printf("[pocmtpnc] get pod info for ipconfigs request %+v", podInfo)
 	if respCode != types.Success {
 		return nil, respCode, message
 	}
 
 	// validates if pod is swiftv2
 	isSwiftv2 := ValidateSwiftv2Pod(pod)
+	logger.Printf("[pocmtpnc] pod %s is swiftv2 : %v", podInfo.Name(), isSwiftv2)
 
 	var mtpnc v1alpha1.MultitenantPodNetworkConfig
 	// if swiftv2 is enabled, get mtpnc
@@ -60,14 +63,15 @@ func (k *K8sSWIFTv2Middleware) GetPodInfoForIPConfigsRequest(ctx context.Context
 			return nil, respCode, message
 		}
 	}
-	logger.Printf("[SWIFTv2Middleware] pod %s has secondary interface : %v", podInfo.Name(), req.SecondaryInterfacesExist)
-	logger.Printf("[SWIFTv2Middleware] pod %s has backend interface : %v", podInfo.Name(), req.BackendInterfaceExist)
+	logger.Printf("[pocmtpnc] pod %s has secondary interface : %v", podInfo.Name(), req.SecondaryInterfacesExist)
+	logger.Printf("[pocmtpnc] pod %s has backend interface : %v", podInfo.Name(), req.BackendInterfaceExist)
 
 	return podInfo, types.Success, ""
 }
 
 // getIPConfig returns the pod's SWIFT V2 IP configuration.
 func (k *K8sSWIFTv2Middleware) getIPConfig(ctx context.Context, podInfo cns.PodInfo) ([]cns.PodIpInfo, error) {
+	logger.Printf("[SWIFTv2Middleware] getIPConfig for pod %s", podInfo.Name())
 	// Check if the MTPNC CRD exists for the pod, if not, return error
 	mtpnc := v1alpha1.MultitenantPodNetworkConfig{}
 	mtpncNamespacedName := k8stypes.NamespacedName{Namespace: podInfo.Namespace(), Name: podInfo.Name()}
@@ -162,12 +166,13 @@ func (k *K8sSWIFTv2Middleware) Type() cns.SWIFTV2Mode {
 // gets Pod Data
 func (k *K8sSWIFTv2Middleware) GetPodInfo(ctx context.Context, req *cns.IPConfigsRequest) (podInfo cns.PodInfo, k8sPod v1.Pod, respCode types.ResponseCode, message string) {
 	// Retrieve the pod from the cluster
+	logger.Printf("[pocmtpnc] get pod info for ipconfigs request %+v", req)
 	podInfo, err := cns.UnmarshalPodInfo(req.OrchestratorContext)
 	if err != nil {
 		errBuf := errors.Wrapf(err, "failed to unmarshalling pod info from ipconfigs request %+v", req)
 		return nil, v1.Pod{}, types.UnexpectedError, errBuf.Error()
 	}
-	logger.Printf("[SWIFTv2Middleware] validate ipconfigs request for pod %s", podInfo.Name())
+	logger.Printf("[pocmtpnc] validate ipconfigs request for pod %s", podInfo.Name())
 	podNamespacedName := k8stypes.NamespacedName{Namespace: podInfo.Namespace(), Name: podInfo.Name()}
 	pod := v1.Pod{}
 	if err := k.Cli.Get(ctx, podNamespacedName, &pod); err != nil {
@@ -179,6 +184,7 @@ func (k *K8sSWIFTv2Middleware) GetPodInfo(ctx context.Context, req *cns.IPConfig
 
 // validates if pod is multitenant by checking the pod labels, used in SWIFT V2 AKS scenario.
 func ValidateSwiftv2Pod(pod v1.Pod) bool {
+	logger.Printf("[pocmtpnc] validate pod %s for swiftv2", pod.Name)
 	// check the pod labels for Swift V2
 	_, swiftV2PodNetworkLabel := pod.Labels[configuration.LabelPodSwiftV2]
 	_, swiftV2PodNetworkInstanceLabel := pod.Labels[configuration.LabelPodNetworkInstanceSwiftV2]
@@ -186,8 +192,10 @@ func ValidateSwiftv2Pod(pod v1.Pod) bool {
 }
 
 func (k *K8sSWIFTv2Middleware) getMTPNC(ctx context.Context, podInfo cns.PodInfo) (mtpncResource v1alpha1.MultitenantPodNetworkConfig, respCode types.ResponseCode, message string) {
+	logger.Printf("[pocmtpnc] getMTPNC for pod %s", podInfo.Name())
 	// Check if the MTPNC CRD exists for the pod, if not, return error
 	mtpnc := v1alpha1.MultitenantPodNetworkConfig{}
+	logger.Printf("[pocmtpnc] mtpnc for pod %s is : %+v", podInfo.Name(), mtpnc)
 	mtpncNamespacedName := k8stypes.NamespacedName{Namespace: podInfo.Namespace(), Name: podInfo.Name()}
 	if err := k.Cli.Get(ctx, mtpncNamespacedName, &mtpnc); err != nil {
 		return v1alpha1.MultitenantPodNetworkConfig{}, types.UnexpectedError, fmt.Errorf("failed to get pod's mtpnc from cache : %w", err).Error()

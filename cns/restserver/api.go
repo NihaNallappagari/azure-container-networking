@@ -1303,6 +1303,7 @@ func (service *HTTPRestService) getVMUniqueID(w http.ResponseWriter, r *http.Req
 
 // This function is used to query all NCs on a node from NMAgent
 func (service *HTTPRestService) nmAgentNCListHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Printf("[pocv6 version] nmAgentNCListHandler")
 	logger.Request(service.Name, "nmAgentNCListHandler", nil)
 	var (
 		returnCode           types.ResponseCode
@@ -1319,6 +1320,7 @@ func (service *HTTPRestService) nmAgentNCListHandler(w http.ResponseWriter, r *h
 			returnMessage = "[Azure-CNS] " + ncVersionerr.Error()
 			break
 		}
+		logger.Printf("[pocv6 version] NmAgentNCListHandler received GET %v ", ncVersionList)
 
 		for _, container := range ncVersionList.Containers {
 			networkContainerList = append(networkContainerList, container.NetworkContainerID)
@@ -1333,7 +1335,7 @@ func (service *HTTPRestService) nmAgentNCListHandler(w http.ResponseWriter, r *h
 		Response: resp,
 		NCList:   networkContainerList,
 	}
-
+	logger.Printf("[pocv6 version] NmAgentNCListHandler response %v", NCListResponse)
 	serviceErr := common.Encode(w, &NCListResponse)
 	logger.Response(service.Name, NCListResponse, resp.ReturnCode, serviceErr)
 }

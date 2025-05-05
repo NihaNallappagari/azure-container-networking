@@ -118,8 +118,9 @@ func (k *K8sSWIFTv2Middleware) addDefaultRoute(*cns.PodIpInfo, string) {}
 // and release IP configs handlers.
 func (k *K8sSWIFTv2Middleware) IPConfigsRequestHandlerWrapper(defaultHandler, failureHandler cns.IPConfigsHandlerFunc) cns.IPConfigsHandlerFunc {
 	return func(ctx context.Context, req cns.IPConfigsRequest) (*cns.IPConfigsResponse, error) {
-		podInfo, respCode, message := k.GetPodInfoForIPConfigsRequest(ctx, &req)
 
+		podInfo, respCode, message := k.GetPodInfoForIPConfigsRequest(ctx, &req)
+		logger.Printf("pocmtpnc podInfo: %v", podInfo)
 		if respCode != types.Success {
 			return &cns.IPConfigsResponse{
 				Response: cns.Response{
@@ -129,6 +130,9 @@ func (k *K8sSWIFTv2Middleware) IPConfigsRequestHandlerWrapper(defaultHandler, fa
 			}, errors.New("failed to validate IP configs request")
 		}
 		ipConfigsResp, err := defaultHandler(ctx, req)
+		// if err != nil {
+		// 	logger.Errorf("[Debug] IPConfigsRequestHandlerWrapper: Failed to process NC ID: %s, Error: %v", podInfo.PodIPConfig.NCID, err)
+		// }
 		// If the pod is not v2, return the response from the handler
 		if !req.SecondaryInterfacesExist {
 			return ipConfigsResp, err
@@ -147,6 +151,7 @@ func (k *K8sSWIFTv2Middleware) IPConfigsRequestHandlerWrapper(defaultHandler, fa
 			return ipConfigsResp, err
 		}
 		SWIFTv2PodIPInfos, err := k.getIPConfig(ctx, podInfo)
+		logger.Printf(("pocmtpnc swiftv2PodIPInfos: %v"), SWIFTv2PodIPInfos)
 		if err != nil {
 			return &cns.IPConfigsResponse{
 				Response: cns.Response{

@@ -280,6 +280,7 @@ func (service *HTTPRestService) RequestIPConfigsHandler(w http.ResponseWriter, r
 	if err != nil {
 		return
 	}
+	// entry 1--
 	var ipConfigsResp *cns.IPConfigsResponse
 
 	// Check if IPConfigsHandlerMiddleware is set

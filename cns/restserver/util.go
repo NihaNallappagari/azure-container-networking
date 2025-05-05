@@ -140,6 +140,7 @@ func (service *HTTPRestService) restoreState() {
 
 func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetworkContainerRequest) (types.ResponseCode, string) { //nolint // legacy
 	// we don't want to overwrite what other calls may have written
+	logger.Printf("[Debug] saveNetworkContainerGoalState: Processing NC ID: %s", req.NetworkContainerid)
 	service.Lock()
 	defer service.Unlock()
 
@@ -154,6 +155,7 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 	}
 
 	existingNCStatus, ok := service.state.ContainerStatus[req.NetworkContainerid]
+
 	if ok {
 		hostVersion = existingNCStatus.HostVersion
 		existingSecondaryIPConfigs = existingNCStatus.CreateNetworkContainerRequest.SecondaryIPConfigs
@@ -170,6 +172,7 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 		// TODO, query NMAgent and with aggresive time out and assign latest host version.
 		hostVersion = "-1"
 	}
+	logger.Printf("[pocv6] Host version is %s", hostVersion)
 
 	// Remove the auth token before saving the containerStatus to cns json file
 	createNetworkContainerRequest := req
@@ -182,7 +185,7 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 		HostVersion:                   hostVersion,
 		VfpUpdateComplete:             vfpUpdateComplete,
 	}
-
+	logger.Printf("[Debug] saveNetworkContainerGoalState: Saved NC ID: %s, HostVersion: %s", req.NetworkContainerid, hostVersion)
 	switch req.NetworkContainerType {
 	case cns.AzureContainerInstance:
 		fallthrough
@@ -255,6 +258,7 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 func (service *HTTPRestService) updateIPConfigsStateUntransacted(
 	req cns.CreateNetworkContainerRequest, existingSecondaryIPConfigs map[string]cns.SecondaryIPConfig, hostVersion string,
 ) (types.ResponseCode, string) {
+	logger.Printf("[pocv4 version] updateIPConfigsStateUntransacted: Processing NC ID: %s", req.NetworkContainerid)
 	// parse the existingSecondaryIpConfigState to find the deleted Ips
 	newIPConfigs := req.SecondaryIPConfigs
 	tobeDeletedIPConfigs := make(map[string]cns.SecondaryIPConfig)
@@ -309,6 +313,13 @@ func (service *HTTPRestService) updateIPConfigsStateUntransacted(
 func (service *HTTPRestService) addIPConfigStateUntransacted(ncID string, hostVersion int, ipconfigs,
 	existingSecondaryIPConfigs map[string]cns.SecondaryIPConfig,
 ) {
+	logger.Printf("[pocv6] Entering addIPConfigStateUntransacted, ncID: %s, hostVersion: %d", ncID, hostVersion)
+	ncStatus, exists := service.state.ContainerStatus[ncID]
+	if exists {
+		dncVersion := ncStatus.CreateNetworkContainerRequest.Version
+		logger.Printf("[pocv6] DNC version for NC %s: %s", ncID, dncVersion)
+	}
+
 	// add ipconfigs to state
 	for ipID, ipconfig := range ipconfigs {
 		// New secondary IP configs has new NC version however, CNS don't want to override existing IPs'with new
@@ -449,6 +460,7 @@ func (service *HTTPRestService) getAllNetworkContainerResponses(
 
 		if !skipNCVersionCheck {
 			for _, ncid := range ncs {
+				logger.Printf("[Debug] getAllNetworkContainerResponses--1: Processing NC ID: %s", ncid)
 				waitingForUpdate := false
 				// If the goal state is available with CNS, check if the NC is pending VFP programming
 				waitingForUpdate, getNetworkContainerResponse.Response.ReturnCode, getNetworkContainerResponse.Response.Message = service.isNCWaitingForUpdate(service.state.ContainerStatus[ncid].CreateNetworkContainerRequest.Version, ncid, nmaNCs) //nolint:lll // bad code
@@ -506,6 +518,7 @@ func (service *HTTPRestService) getAllNetworkContainerResponses(
 	getNetworkContainersResponse := []cns.GetNetworkContainerResponse{}
 
 	for _, ncid := range ncs {
+		logger.Printf("[Debug] getAllNetworkContainerResponses----2: Processing NC ID: %s", ncid)
 		containerStatus := service.state.ContainerStatus
 		containerDetails, ok := containerStatus[ncid]
 		if !ok {
@@ -865,6 +878,7 @@ func lowerCaseNCGuid(ncid string) string {
 // This returns success / waitingForUpdate as false in all other cases.
 // V2 is using the nmagent get nc version list api v2 which doesn't need authentication token
 func (service *HTTPRestService) isNCWaitingForUpdate(ncVersion, ncid string, ncVersionList map[string]string) (waitingForUpdate bool, returnCode types.ResponseCode, message string) {
+	logger.Printf("[Debug] isNCWaitingForUpdate: Processing NC ID: %s", ncid)
 	ncStatus, ok := service.state.ContainerStatus[ncid]
 	if ok {
 		if ncStatus.VfpUpdateComplete &&
