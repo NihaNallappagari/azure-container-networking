@@ -170,6 +170,7 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 		// TODO, query NMAgent and with aggresive time out and assign latest host version.
 		hostVersion = "-1"
 	}
+	// hostVersion = "0"
 
 	hostVersion = req.Version
 

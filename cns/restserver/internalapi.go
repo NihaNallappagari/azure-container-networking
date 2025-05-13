@@ -191,6 +191,10 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	outdatedNCs := map[string]struct{}{}
 	programmedNCs := map[string]struct{}{}
 	for idx := range service.state.ContainerStatus {
+		logger.Printf("NC mac address is %s", service.state.ContainerStatus[idx].CreateNetworkContainerRequest.NetworkInterfaceInfo.MACAddress)
+		if service.state.ContainerStatus[idx].CreateNetworkContainerRequest.NetworkInterfaceInfo.MACAddress != "" {
+			logger.Printf("NC %s have MAC address, skip NC version check", service.state.ContainerStatus[idx].ID)
+		}
 		// Will open a separate PR to convert all the NC version related variable to int. Change from string to int is a pain.
 		localNCVersion, err := strconv.Atoi(service.state.ContainerStatus[idx].HostVersion)
 		if err != nil {
@@ -202,6 +206,7 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 			logger.Errorf("Received err when change nc version %s in containerstatus to int, err msg %v", service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version, err)
 			continue
 		}
+		logger.Printf("NC %s local version %d, dnc version %d", service.state.ContainerStatus[idx].ID, localNCVersion, dncNCVersion)
 		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
 		if localNCVersion < dncNCVersion {
 			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
