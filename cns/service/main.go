@@ -70,6 +70,8 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	//"golang.org/x/sys/windows/registry"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -368,6 +370,7 @@ func init() {
 			endpointStorePath = endpointStoreLocationLinux
 		}
 	}
+
 	go func() {
 		// Wait until receiving a signal.
 		select {
@@ -553,6 +556,18 @@ func main() {
 
 	if !telemetryEnabled {
 		logger.Errorf("[Azure CNS] Cannot disable telemetry via cmdline. Update cns_config.json to disable telemetry.")
+	}
+
+	logger.Printf("[Azure CNS] in main func modified")
+	if runtime.GOOS == "windows" {
+		logger.Printf("[Azure CNS] in if")
+		// setTestRegistryKey
+		endpointmanager.SetTestRegistryKey()
+		logger.Printf("[Azure CNS] Using registry key for infra network ID modified")
+		endpointmanager.GetTestRegistryKey()
+		logger.Printf("[Azure CNS] Using registry key for infra network ID finished")
+	} else {
+		logger.Printf("[Azure CNS] in else")
 	}
 
 	cnsconfig, err := configuration.ReadConfig(cmdLineConfigPath)
@@ -781,7 +796,8 @@ func main() {
 		}
 	}
 
-	logger.Printf("[Azure CNS] Initialize HTTPRemoteRestService")
+	logger.Printf("[Azure CNS] Initialize HTTPRemoteRestService modified")
+	// can add here
 	if httpRemoteRestService != nil {
 		if cnsconfig.UseHTTPS {
 			config.TLSSettings = localtls.TlsSettings{
