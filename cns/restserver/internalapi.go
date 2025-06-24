@@ -17,12 +17,27 @@ import (
 	"time"
 
 	"github.com/Azure/azure-container-networking/cns"
+	"github.com/Azure/azure-container-networking/cns/imds"
 	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/cns/nodesubnet"
 	"github.com/Azure/azure-container-networking/cns/types"
 	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/crd/nodenetworkconfig/api/v1alpha"
 	"github.com/pkg/errors"
+)
+
+const (
+	// URL to query NMAgent version and determine supported APIs
+	nmAgentSupportedApisURL = "http://168.63.129.16/machine/plugins/?comp=nmagent&type=GetSupportedApis"
+	// Known API names we care about
+	nmAgentSnatSupportAPI = "NetworkManagementSnatSupport"
+	nmAgentDnsSupportAPI  = "NetworkManagementDNSSupport"
+
+	// IMDS constants
+	imdsComputeAPIVersion = "api-version=2021-01-01"
+	imdsFormatJSON        = "format=json"
+	metadataHeaderKey     = "Metadata"
+	metadataHeaderValue   = "true"
 )
 
 // This file contains the internal functions called by either HTTP APIs (api.go) or
@@ -167,6 +182,7 @@ func (service *HTTPRestService) SyncHostNCVersion(ctx context.Context, channelMo
 	service.Lock()
 	defer service.Unlock()
 	start := time.Now()
+
 	programmedNCCount, err := service.syncHostNCVersion(ctx, channelMode)
 	// even if we get an error, we want to write the CNI conflist if we have any NC programmed to any version
 	if programmedNCCount > 0 {
@@ -202,6 +218,7 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 			logger.Errorf("Received err when change nc version %s in containerstatus to int, err msg %v", service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version, err)
 			continue
 		}
+		logger.Printf("NC %s: local NC version %d, DNC NC version %d", service.state.ContainerStatus[idx].ID, localNCVersion, dncNCVersion)
 		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
 		if localNCVersion < dncNCVersion {
 			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
@@ -216,23 +233,43 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	if len(outdatedNCs) == 0 {
 		return len(programmedNCs), nil
 	}
+
 	ncVersionListResp, err := service.nma.GetNCVersionList(ctx)
 	if err != nil {
 		return len(programmedNCs), errors.Wrap(err, "failed to get nc version list from nmagent")
+	}
+
+	// Get IMDS NC versions for delegated NIC scenarios
+	imdsNCVersions, err := service.GetIMDSNCVersions(ctx)
+	if err != nil {
+		logger.Printf("Failed to get NC versions from IMDS: %v", err)
+		// If any of the NMA API check calls, imds calls fails assume that nma build doesn't have the latest changes and create empty map
+		imdsNCVersions = make(map[string]string)
 	}
 
 	nmaNCs := map[string]string{}
 	for _, nc := range ncVersionListResp.Containers {
 		nmaNCs[strings.ToLower(nc.NetworkContainerID)] = nc.Version
 	}
-	hasNC.Set(float64(len(nmaNCs)))
+
+	// Consolidate both maps - NMA takes precedence, IMDS as fallback
+	consolidatedNCs := make(map[string]string)
+	for ncID, version := range nmaNCs {
+		consolidatedNCs[ncID] = version
+	}
+	for ncID, version := range imdsNCVersions {
+		if _, exists := consolidatedNCs[ncID]; !exists {
+			consolidatedNCs[ncID] = version
+		}
+	}
+	hasNC.Set(float64(len(consolidatedNCs)))
 	for ncID := range outdatedNCs {
-		nmaNCVersionStr, ok := nmaNCs[ncID]
+		consolidatedNCVersionStr, ok := consolidatedNCs[ncID]
 		if !ok {
-			// NMA doesn't have this NC that we need programmed yet, bail out
+			// Neither NMA nor IMDS has this NC that we need programmed yet, bail out
 			continue
 		}
-		nmaNCVersion, err := strconv.Atoi(nmaNCVersionStr)
+		consolidatedNCVersion, err := strconv.Atoi(consolidatedNCVersionStr)
 		if err != nil {
 			logger.Errorf("failed to parse container version of %s: %s", ncID, err)
 			continue
@@ -245,7 +282,7 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 			return len(programmedNCs), errors.Wrapf(errNonExistentContainerStatus, "can't find NC with ID %s in service state, stop updating this host NC version", ncID)
 		}
 		// if the NC still exists in state and is programmed to some version (doesn't have to be latest), add it to our set of NCs that have been programmed
-		if nmaNCVersion > -1 {
+		if consolidatedNCVersion > -1 {
 			programmedNCs[ncID] = struct{}{}
 		}
 
@@ -254,15 +291,15 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 			logger.Errorf("failed to parse host nc version string %s: %s", ncInfo.HostVersion, err)
 			continue
 		}
-		if localNCVersion > nmaNCVersion {
-			logger.Errorf("NC version from NMA is decreasing: have %d, got %d", localNCVersion, nmaNCVersion)
+		if localNCVersion > consolidatedNCVersion {
+			logger.Errorf("NC version from consolidated sources is decreasing: have %d, got %d", localNCVersion, consolidatedNCVersion)
 			continue
 		}
 		if channelMode == cns.CRD {
-			service.MarkIpsAsAvailableUntransacted(ncInfo.ID, nmaNCVersion)
+			service.MarkIpsAsAvailableUntransacted(ncInfo.ID, consolidatedNCVersion)
 		}
-		logger.Printf("Updating NC %s host version from %s to %s", ncID, ncInfo.HostVersion, nmaNCVersionStr)
-		ncInfo.HostVersion = nmaNCVersionStr
+		logger.Printf("Updating NC %s host version from %s to %s", ncID, ncInfo.HostVersion, consolidatedNCVersionStr)
+		ncInfo.HostVersion = consolidatedNCVersionStr
 		logger.Printf("Updated NC %s host version to %s", ncID, ncInfo.HostVersion)
 		service.state.ContainerStatus[ncID] = ncInfo
 		// if we successfully updated the NC, pop it from the needs update set.
@@ -633,4 +670,156 @@ func (service *HTTPRestService) CreateOrUpdateNetworkContainerInternal(req *cns.
 
 func (service *HTTPRestService) SetVFForAccelnetNICs() error {
 	return service.setVFForAccelnetNICs()
+}
+
+// queryNMAgentSupportedAPIs queries the NMAgent for all supported APIs and returns them
+// func queryNMAgentSupportedAPIs(ctx context.Context) ([]string, error) {
+// 	client := &http.Client{
+// 		Timeout: 10 * time.Second,
+// 	}
+
+// 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, nmAgentSupportedApisURL, nil)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed creating http request: %w", err)
+// 	}
+
+// 	logger.Printf("[queryNMAgentSupportedAPIs] Querying NMAgent for supported APIs: %s", nmAgentSupportedApisURL)
+
+// 	resp, err := client.Do(req)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to query NMAgent: %w", err)
+// 	}
+// 	defer resp.Body.Close()
+
+// 	if resp.StatusCode != http.StatusOK {
+// 		return nil, fmt.Errorf("NMAgent returned status code: %d", resp.StatusCode)
+// 	}
+
+// 	// Read response body
+// 	bodyBytes := make([]byte, 0, 1024)
+// 	buffer := make([]byte, 512)
+// 	for {
+// 		n, err := resp.Body.Read(buffer)
+// 		if n > 0 {
+// 			bodyBytes = append(bodyBytes, buffer[:n]...)
+// 		}
+// 		if err != nil {
+// 			break
+// 		}
+// 	}
+
+// 	bodyStr := string(bodyBytes)
+// 	logger.Printf("[queryNMAgentSupportedAPIs] NMAgent response: %s", bodyStr)
+
+// 	// Parse the response - try JSON array first
+// 	var apis []string
+// 	if err := json.Unmarshal([]byte(bodyStr), &apis); err != nil {
+// 		// If it's not a JSON array, try to parse as text/split by commas or newlines
+// 		logger.Printf("[queryNMAgentSupportedAPIs] Response is not JSON array, parsing as text")
+// 		if strings.Contains(bodyStr, ",") {
+// 			apis = strings.Split(bodyStr, ",")
+// 		} else if strings.Contains(bodyStr, "\n") {
+// 			apis = strings.Split(bodyStr, "\n")
+// 		} else {
+// 			apis = []string{bodyStr}
+// 		}
+
+// 		// Clean up whitespace
+// 		for i, api := range apis {
+// 			apis[i] = strings.TrimSpace(api)
+// 		}
+// 	}
+
+// 	return apis, nil
+// }
+
+// checkNMAgentAPISupport checks if specific APIs are supported by NMAgent using the existing client
+func (service *HTTPRestService) checkNMAgentAPISupport(ctx context.Context) (dnsSupport bool, err error) {
+	// Use the existing NMAgent client instead of direct HTTP calls
+	if service.nma == nil {
+		return false, fmt.Errorf("NMAgent client is not available")
+	}
+
+	apis, err := service.nma.SupportedAPIs(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get supported APIs from NMAgent client: %w", err)
+	}
+
+	logger.Printf("[checkNMAgentAPISupport] Found %d APIs from NMAgent client", len(apis))
+	for i, api := range apis {
+		logger.Printf("[checkNMAgentAPISupport] API %d: %s", i+1, api)
+
+		if strings.Contains(api, nmAgentDnsSupportAPI) {
+			dnsSupport = true
+		}
+	}
+
+	logger.Printf("[checkNMAgentAPISupport] Support check - DNS: %t", dnsSupport)
+	return dnsSupport, nil
+}
+
+// CheckDNSSupportAndSyncNC implements the logic to check DNS support and conditionally sync NC version
+// func (service *HTTPRestService) CheckDNSSupportAndSyncNC(ctx context.Context, channelMode string, ncID string) error {
+// 	logger.Printf("[CheckDNSSupportAndSyncNC] Starting DNS support check and conditional NC sync for NC ID: %s", ncID)
+
+// 	// Step 1: Check NMAgent API support for DNS
+// 	dnsSupport, err := service.checkNMAgentAPISupport(ctx)
+// 	if err != nil {
+// 		logger.Printf("[CheckDNSSupportAndSyncNC] Failed to check NMAgent API support: %v", err)
+// 		return err
+// 	}
+
+// 	// Step 2: If DNS support doesn't exist, return error
+// 	if !dnsSupport {
+// 		logger.Printf("[CheckDNSSupportAndSyncNC] DNS support API not found")
+// 		return fmt.Errorf("DNS support API not found")
+// 	}
+
+// 	logger.Printf("[CheckDNSSupportAndSyncNC] DNS support API exists, proceeding to get NC version for NC ID: %s", ncID)
+
+// 	// Step 3: If DNS support exists, try to get NC version from IMDS for the specific NC ID
+// 	imdsClient := imds.NewClient()
+
+// 	// Get NC version for the specific NC ID (no retries needed as per request)
+// 	ncVersion, err := imdsClient.GetNCVersionByID(ctx, ncID)
+// 	if err != nil {
+// 		logger.Printf("[CheckDNSSupportAndSyncNC] Failed to get NC version from IMDS for NC ID %s: %v", ncID, err)
+// 		return err
+// 	}
+
+// 	// Step 4: Check if NC version is present for the specific NC ID
+// 	if ncVersion == "" {
+// 		logger.Printf("[CheckDNSSupportAndSyncNC] NC ID %s not found in IMDS or has no version, ignoring", ncID)
+// 		return fmt.Errorf("NC ID %s not found in IMDS or has no version", ncID)
+// 	}
+
+// 	// Success case - NC version found for the specific NC ID
+// 	logger.Printf("[CheckDNSSupportAndSyncNC] Successfully got NC version from IMDS for NC ID %s: version %s", ncID, ncVersion)
+// 	return nil
+// }
+
+// GetIMDSNCVersions gets NC versions from IMDS and returns them as a map
+func (service *HTTPRestService) GetIMDSNCVersions(ctx context.Context) (map[string]string, error) {
+	logger.Printf("[GetIMDSNCVersions] Getting NC versions from IMDS")
+
+	// Check NMAgent API support for DNS, if it fails return empty map assuming support might not be available in that nma build
+	dnsSupport, err := service.checkNMAgentAPISupport(ctx)
+	if err != nil && !dnsSupport {
+		logger.Printf("[GetIMDSNCVersions] Failed to check NMAgent API support or DNS support API not found, returning empty map: %v", err)
+		return make(map[string]string), nil
+	}
+
+	logger.Printf("[GetIMDSNCVersions] DNS support API exists, proceeding to get NC versions from IMDS")
+
+	imdsClient := imds.NewClient()
+
+	// Get all NC versions from IMDS
+	ncVersions, err := imdsClient.GetNCVersionsFromIMDS(ctx)
+	if err != nil {
+		logger.Printf("[GetIMDSNCVersions] Failed to get NC versions from IMDS: %v", err)
+		return make(map[string]string), nil
+	}
+
+	logger.Printf("[GetIMDSNCVersions] Successfully got %d NC versions from IMDS", len(ncVersions))
+	return ncVersions, nil
 }

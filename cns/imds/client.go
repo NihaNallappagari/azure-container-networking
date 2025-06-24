@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/avast/retry-go/v4"
 	"github.com/pkg/errors"
 )
@@ -46,12 +47,14 @@ func RetryAttempts(attempts uint) ClientOption {
 const (
 	vmUniqueIDProperty    = "vmId"
 	imdsComputePath       = "/metadata/instance/compute"
+	imdsNetworkPath       = "/metadata/instance/network"
 	imdsComputeAPIVersion = "api-version=2021-01-01"
 	imdsFormatJSON        = "format=json"
 	metadataHeaderKey     = "Metadata"
 	metadataHeaderValue   = "true"
 	defaultRetryAttempts  = 3
 	defaultIMDSEndpoint   = "http://169.254.169.254"
+	ncVersion             = "ncVersion"
 )
 
 var (
@@ -79,7 +82,7 @@ func NewClient(opts ...ClientOption) *Client {
 func (c *Client) GetVMUniqueID(ctx context.Context) (string, error) {
 	var vmUniqueID string
 	err := retry.Do(func() error {
-		computeDoc, err := c.getInstanceComputeMetadata(ctx)
+		computeDoc, err := c.getInstanceMetadata(ctx, imdsComputePath)
 		if err != nil {
 			return errors.Wrap(err, "error getting IMDS compute metadata")
 		}
@@ -102,10 +105,139 @@ func (c *Client) GetVMUniqueID(ctx context.Context) (string, error) {
 	return vmUniqueID, nil
 }
 
-func (c *Client) getInstanceComputeMetadata(ctx context.Context) (map[string]any, error) {
+func (c *Client) GetNCVersionsFromIMDS(ctx context.Context) (map[string]string, error) {
+	networkMetadata, err := c.getInstanceMetadata(ctx, imdsNetworkPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting IMDS network metadata")
+	}
+
+	// Try to parse the network metadata as the expected structure
+	var networkData NetworkMetadata
+
+	// Convert the map to JSON and back to properly unmarshal into struct
+	jsonData, err := json.Marshal(networkMetadata)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshaling network metadata")
+	}
+	logger.Printf("IMDS network metadata JSON: %s", string(jsonData))
+
+	if err := json.Unmarshal(jsonData, &networkData); err != nil {
+		return nil, errors.Wrap(err, "error unmarshaling network metadata")
+	}
+	logger.Printf("Parsed IMDS network metadata: %+v", networkData)
+	// Collect all NC IDs and their versions (empty string if version doesn't exist)
+	ncVersions := make(map[string]string)
+	for _, iface := range networkData.Interface {
+		if iface.NcId != "" {
+			// Include NC ID even if NCVersion is empty
+			ncVersions[iface.NcId] = iface.NCVersion
+		}
+	}
+
+	return ncVersions, nil
+}
+
+// GetNetworkInterfaces returns all network interfaces from IMDS metadata
+func (c *Client) GetNetworkInterfaces(ctx context.Context) ([]NetworkInterface, error) {
+	var interfaces []NetworkInterface
+	err := retry.Do(func() error {
+		networkMetadata, err := c.getInstanceMetadata(ctx, imdsNetworkPath)
+		if err != nil {
+			return errors.Wrap(err, "error getting IMDS network metadata")
+		}
+
+		// Try to parse the network metadata as the expected structure
+		var networkData NetworkMetadata
+
+		// Convert the map to JSON and back to properly unmarshal into struct
+		jsonData, err := json.Marshal(networkMetadata)
+		if err != nil {
+			return errors.Wrap(err, "error marshaling network metadata")
+		}
+
+		if err := json.Unmarshal(jsonData, &networkData); err != nil {
+			return errors.Wrap(err, "error unmarshaling network metadata")
+		}
+
+		interfaces = networkData.Interface
+		return nil
+	}, retry.Context(ctx), retry.Attempts(c.config.retryAttempts), retry.DelayType(retry.BackOffDelay))
+
+	if err != nil {
+		return nil, errors.Wrap(err, "exhausted retries querying IMDS network metadata")
+	}
+
+	return interfaces, nil
+}
+
+// GetNetworkInterfaceMACs returns a slice of MAC addresses from all network interfaces
+func (c *Client) GetNetworkInterfaceMACs(ctx context.Context) ([]string, error) {
+	interfaces, err := c.GetNetworkInterfaces(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting network interfaces")
+	}
+
+	var macs []string
+	for _, iface := range interfaces {
+		if iface.MacAddress != "" {
+			macs = append(macs, iface.MacAddress)
+		}
+	}
+
+	return macs, nil
+}
+
+// GetAllNCVersions returns a map of NC ID to NC Version for all interfaces that have both
+func (c *Client) GetAllNCVersions(ctx context.Context) (map[string]string, error) {
+	networkMetadata, err := c.getInstanceMetadata(ctx, imdsNetworkPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting IMDS network metadata")
+	}
+
+	// Try to parse the network metadata as the expected structure
+	var networkData NetworkMetadata
+
+	// Convert the map to JSON and back to properly unmarshal into struct
+	jsonData, err := json.Marshal(networkMetadata)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshaling network metadata")
+	}
+
+	if err := json.Unmarshal(jsonData, &networkData); err != nil {
+		return nil, errors.Wrap(err, "error unmarshaling network metadata")
+	}
+
+	// Collect all NC IDs and their versions
+	ncVersions := make(map[string]string)
+	for _, iface := range networkData.Interface {
+		if iface.NcId != "" && iface.NCVersion != "" {
+			ncVersions[iface.NcId] = iface.NCVersion
+		}
+	}
+
+	return ncVersions, nil
+}
+
+// GetNCVersionByID returns the NC version for a specific NC ID, or empty string if not found
+func (c *Client) GetNCVersionByID(ctx context.Context, ncID string) (string, error) {
+	ncVersions, err := c.GetNCVersionsFromIMDS(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Return the version for the specific NC ID, or empty string if not found
+	version, exists := ncVersions[ncID]
+	if !exists {
+		return "", nil // NC ID not found, return empty string
+	}
+
+	return version, nil
+}
+
+func (c *Client) getInstanceMetadata(ctx context.Context, imdsComputePath string) (map[string]any, error) {
 	imdsComputeURL, err := url.JoinPath(c.config.endpoint, imdsComputePath)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to build path to IMDS compute metadata")
+		return nil, errors.Wrap(err, "unable to build path to IMDS metadata for path "+imdsComputePath)
 	}
 	imdsComputeURL = imdsComputeURL + "?" + imdsComputeAPIVersion + "&" + imdsFormatJSON
 
@@ -132,4 +264,29 @@ func (c *Client) getInstanceComputeMetadata(ctx context.Context) (map[string]any
 	}
 
 	return m, nil
+}
+
+// NetworkInterface represents a network interface from IMDS
+type NetworkInterface struct {
+	IPv4 struct {
+		IPAddress []struct {
+			PrivateIPAddress string `json:"privateIpAddress"`
+			PublicIPAddress  string `json:"publicIpAddress"`
+		} `json:"ipAddress"`
+		Subnet []struct {
+			Address string `json:"address"`
+			Prefix  string `json:"prefix"`
+		} `json:"subnet"`
+	} `json:"ipv4"`
+	IPv6 struct {
+		IPAddress []interface{} `json:"ipAddress"`
+	} `json:"ipv6"`
+	MacAddress string `json:"macAddress"`
+	NCVersion  string `json:"ncVersion"`
+	NcId       string `json:"ncId,omitempty"` // Optional, not always present
+}
+
+// NetworkMetadata represents the network metadata from IMDS
+type NetworkMetadata struct {
+	Interface []NetworkInterface `json:"interface"`
 }

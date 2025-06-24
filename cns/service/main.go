@@ -915,10 +915,11 @@ func main() {
 			return
 		}
 	}
-
+	logger.Printf("cns.MultiTenantCRD: %s and  config.ChannelMode: %s", cns.MultiTenantCRD, config.ChannelMode)
 	// Initialize multi-tenant controller if the CNS is running in MultiTenantCRD mode.
 	// It must be started before we start HTTPRemoteRestService.
 	if config.ChannelMode == cns.MultiTenantCRD {
+		logger.Printf("[synchostlogs] InitializeMultiTenantController")
 		err = InitializeMultiTenantController(rootCtx, httpRemoteRestService, *cnsconfig)
 		if err != nil {
 			logger.Errorf("Failed to start multiTenantController, err:%v.\n", err)
@@ -1229,6 +1230,7 @@ func pollNodeInfoCRDAndUpdatePlugin(ctx context.Context, zlog *zap.Logger, plugi
 }
 
 func InitializeMultiTenantController(ctx context.Context, httpRestService cns.HTTPService, cnsconfig configuration.CNSConfig) error {
+	logger.Printf("[synchostlogs]InitializeMultiTenantController")
 	var multiTenantController multitenantcontroller.RequestController
 	kubeConfig, err := ctrl.GetConfig()
 	kubeConfig.UserAgent = fmt.Sprintf("azure-cns-%s", version)
@@ -1282,8 +1284,9 @@ func InitializeMultiTenantController(ctx context.Context, httpRestService cns.HT
 	}
 
 	// TODO: do we need this to be running?
-	logger.Printf("Starting SyncHostNCVersion")
+	logger.Printf("Starting SyncHostNCVersion ---2")
 	go func() {
+
 		// Periodically poll vfp programmed NC version from NMAgent
 		tickerChannel := time.Tick(time.Duration(cnsconfig.SyncHostNCVersionIntervalMs) * time.Millisecond)
 		for {
@@ -1642,7 +1645,7 @@ func InitializeCRDState(ctx context.Context, httpRestService cns.HTTPService, cn
 	}
 
 	go func() {
-		logger.Printf("Starting SyncHostNCVersion loop.")
+		logger.Printf("Starting SyncHostNCVersion loop 111.")
 		// Periodically poll vfp programmed NC version from NMAgent
 		tickerChannel := time.Tick(time.Duration(cnsconfig.SyncHostNCVersionIntervalMs) * time.Millisecond)
 		for {
