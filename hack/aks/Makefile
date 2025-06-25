@@ -9,7 +9,7 @@ AZCLI   ?= docker run --rm -v $(AZCFG):/root/.azure -v $(KUBECFG):/root/.kube -v
 
 # overrideable defaults
 AUTOUPGRADE          ?= patch
-K8S_VER              ?= 1.30
+K8S_VER              ?= 1.33
 NODE_COUNT           ?= 2
 NODE_COUNT_WIN	     ?= $(NODE_COUNT)
 NODEUPGRADE          ?= NodeImage
@@ -19,7 +19,7 @@ OS_SKU_WIN           ?= Windows2022
 REGION               ?= westus2
 VM_SIZE	             ?= Standard_B2s
 VM_SIZE_WIN          ?= Standard_B2s
-IP_TAG               ?= FirstPartyUsage=/DelegatedNetworkControllerTest
+IP_TAG               ?= FirstPartyUsage=/NonProd
 IP_PREFIX            ?= serviceTaggedIp
 PUBLIC_IP_ID         ?= /subscriptions/$(SUB)/resourceGroups/$(GROUP)/providers/Microsoft.Network/publicIPAddresses
 PUBLIC_IPv4          ?= $(PUBLIC_IP_ID)/$(IP_PREFIX)-$(CLUSTER)-v4
