@@ -108,8 +108,9 @@ stages:
 
                   if [ ! -z ${{ parameters.dualstackVersion }} ]; then
                     echo "Use dualstack daemonset for Cilium"
+                    export IPV6_IMAGE_REGISTRY=acnpublic.azurecr.io
                     export IPV6_HP_BPF_VERSION=$(make ipv6-hp-bpf-version)
-                    envsubst '${CILIUM_VERSION_TAG},${CILIUM_IMAGE_REGISTRY},${IPV6_HP_BPF_VERSION}' < test/integration/manifests/cilium/v${DIR}/cilium-agent/templates/daemonset-dualstack.yaml | kubectl apply -f -
+                    envsubst '${CILIUM_VERSION_TAG},${CILIUM_IMAGE_REGISTRY},${IPV6_IMAGE_REGISTRY},${IPV6_HP_BPF_VERSION}' < test/integration/manifests/cilium/v${DIR}/cilium-agent/templates/daemonset-dualstack.yaml | kubectl apply -f -
                   else
                     envsubst '${CILIUM_VERSION_TAG},${CILIUM_IMAGE_REGISTRY}' < test/integration/manifests/cilium/v${DIR}/cilium-agent/templates/daemonset.yaml | kubectl apply -f -
                   fi
@@ -117,8 +118,24 @@ stages:
                   envsubst '${CILIUM_VERSION_TAG},${CILIUM_IMAGE_REGISTRY}' < test/integration/manifests/cilium/v${DIR}/cilium-operator/templates/deployment.yaml | kubectl apply -f -
                   kubectl get po -owide -A
 
+                  if [ -z "$TEST_AZURE_IPAM_VERSION" ]
+                  then
+                    echo "TEST_AZURE_IPAM_VERSION is not set, using default value"
+                    IPAM=$(make azure-ipam-version)
+                  else
+                    IPAM=$(TEST_AZURE_IPAM_VERSION)
+                    echo "TEST_AZURE_IPAM_VERSION is set to $IPAM"
+                  fi
+                  if [ -z "$TEST_CNS_VERSION" ]
+                  then
+                    echo "TEST_CNS_VERSION is not set, using default value"
+                    CNS=$(make cns-version)
+                  else
+                    CNS=$(TEST_CNS_VERSION)
+                    echo "TEST_CNS_VERSION is set to $CNS"
+                  fi
                   echo "Deploy Azure-CNS"
-                  sudo -E env "PATH=$PATH" make test-integration AZURE_IPAM_VERSION=$(make azure-ipam-version) CNS_VERSION=$(make cns-version) INSTALL_CNS=true INSTALL_OVERLAY=true CNS_IMAGE_REPO=$(CNS_IMAGE_REPO)
+                  sudo -E env "PATH=$PATH" make test-integration AZURE_IPAM_VERSION=${IPAM} CNS_VERSION=${CNS} INSTALL_CNS=true INSTALL_OVERLAY=true CNS_IMAGE_REPO=$(CNS_IMAGE_REPO) IPAM_IMAGE_REPO=$(IPAM_IMAGE_REPO) 
                   kubectl get po -owide -A
                   kubectl get crd -A
       - ${{if eq(parameters.hubbleEnabled, true)}}:
@@ -152,8 +169,24 @@ stages:
                   envsubst '${CILIUM_IMAGE_REGISTRY},${CILIUM_VERSION_TAG}' < test/integration/manifests/cilium/v${DIR}/cilium-operator/templates/deployment.yaml | kubectl apply -f -
                   kubectl get po -owide -A
 
+                  if [ -z "$TEST_AZURE_IPAM_VERSION" ]
+                  then
+                    echo "TEST_AZURE_IPAM_VERSION is not set, using default value"
+                    IPAM=$(make azure-ipam-version)
+                  else
+                    IPAM=$(TEST_AZURE_IPAM_VERSION)
+                    echo "TEST_AZURE_IPAM_VERSION is set to $IPAM"
+                  fi
+                  if [ -z "$TEST_CNS_VERSION" ]
+                  then
+                    echo "TEST_CNS_VERSION is not set, using default value"
+                    CNS=$(make cns-version)
+                  else
+                    CNS=$(TEST_CNS_VERSION)
+                    echo "TEST_CNS_VERSION is set to $CNS"
+                  fi
                   echo "Deploy Azure-CNS"
-                  sudo -E env "PATH=$PATH" make test-integration AZURE_IPAM_VERSION=$(make azure-ipam-version) CNS_VERSION=$(make cns-version) INSTALL_CNS=true INSTALL_OVERLAY=true CNS_IMAGE_REPO=$(CNS_IMAGE_REPO)
+                  sudo -E env "PATH=$PATH" make test-integration AZURE_IPAM_VERSION=${IPAM} CNS_VERSION=${CNS} INSTALL_CNS=true INSTALL_OVERLAY=true CNS_IMAGE_REPO=$(CNS_IMAGE_REPO) IPAM_IMAGE_REPO=$(IPAM_IMAGE_REPO) 
                   kubectl get po -owide -A
                   kubectl get crd -A
 
@@ -233,6 +266,7 @@ stages:
               fi
             name: "testAsyncDelete"
             displayName: "Verify Async Delete when CNS is down"
+          - template: ../../templates/cilium-mtu-check.yaml
       - template: ../k8s-e2e/k8s-e2e-job-template.yaml
         parameters:
           sub: $(BUILD_VALIDATIONS_SERVICE_CONNECTION)

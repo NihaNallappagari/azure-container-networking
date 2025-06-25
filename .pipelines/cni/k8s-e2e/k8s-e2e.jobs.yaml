@@ -11,22 +11,16 @@ jobs:
     displayName: CNI k8s E2E ${{ parameters.os }}
     dependsOn: ${{ parameters.dependsOn }}
     pool:
-      isCustom: true
       type: linux
+      isCustom: true
       name: $(BUILD_POOL_NAME_DEFAULT)
-    variables:
-      ob_outputDirectory: $(Build.ArtifactStagingDirectory)/output
-      ob_git_checkout: true
     steps:
-      - checkout: ACNReviewChanges
-        clean: true
-
+      - checkout: azure-container-networking
       - task: AzureCLI@2
         inputs:
           azureSubscription: ${{ parameters.sub }}
           scriptLocation: "inlineScript"
           scriptType: "bash"
-          workingDirectory: $(ACN_DIR)
           addSpnToEnvironment: true
           inlineScript: |
             set -e
@@ -41,9 +35,8 @@ jobs:
             # https://github.com/kubernetes/sig-release/blob/master/release-engineering/artifacts.md#content-of-kubernetes-test-system-archtargz-on-example-of-kubernetes-test-linux-amd64targz-directories-removed-from-list
             # explictly unzip and strip directories from ginkgo and e2e.test
             tar -xvzf kubernetes-test-linux-amd64.tar.gz --strip-components=3 kubernetes/test/bin/ginkgo kubernetes/test/bin/e2e.test
-        displayName: "Setup Environment"
-        retryCountOnTaskFailure: 5
 
+        displayName: "Setup Environment"
       - ${{ if contains(parameters.os, 'windows') }}:
           - script: |
               set -e
@@ -56,13 +49,11 @@ jobs:
                 kubectl exec -i -n kube-system $pod -- powershell "Restart-Service kubeproxy"
                 kubectl exec -i -n kube-system $pod -- powershell "Get-Service kubeproxy"
               done
-            workingDirectory: $(ACN_DIR)
             name: kubeproxy
             displayName: Restart Kubeproxy on Windows nodes
             retryCountOnTaskFailure: 3
-
       - ${{ if eq(parameters.datapath, true) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: Datapath
               name: datapath
@@ -71,9 +62,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 10
-
       - ${{ if eq(parameters.dns, true) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: DNS
               name: dns
@@ -82,9 +72,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 3
-
       - ${{ if eq(parameters.portforward, true) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: Kubectl Portforward
               name: portforward
@@ -93,9 +82,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 3
-
       - ${{ if and( eq(parameters.service, true), contains(parameters.cni, 'cni') ) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: Service Conformance
               name: service
@@ -104,9 +92,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 3
-
       - ${{ if and( eq(parameters.service, true), contains(parameters.cni, 'cilium') ) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: Service Conformance|Cilium
               name: service
@@ -115,9 +102,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 3
-
       - ${{ if eq(parameters.hostport, true) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: Host Port
               name: hostport
@@ -126,9 +112,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 1 # Has a short serial test
               attempts: 3
-
       - ${{ if and(eq(parameters.hybridWin, true), eq(parameters.os, 'windows')) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: Hybrid Network
               name: hybrid
@@ -137,9 +122,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 3
-
       - ${{ if and( eq(parameters.dualstack, true), eq(contains(parameters.cni, 'cilium'), false) ) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: DualStack Test
               name: DualStack
@@ -149,9 +133,8 @@ jobs:
               os: ${{ parameters.os }}
               processes: 8
               attempts: 3
-
       - ${{ if and( eq(parameters.dualstack, true), contains(parameters.cni, 'cilium') ) }}:
-          - template: k8s-e2e.steps.yaml@ACNTools
+          - template: ../k8s-e2e/k8s-e2e.steps.yaml
             parameters:
               testName: DualStack Test|Cilium
               name: DualStack

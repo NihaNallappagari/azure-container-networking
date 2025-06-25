@@ -53,17 +53,20 @@ type cnsDetails struct {
 }
 
 const (
-	envAzureIPAMVersion     = "AZURE_IPAM_VERSION"
-	envCNIVersion           = "CNI_VERSION"
-	envCNSVersion           = "CNS_VERSION"
-	envCNIImageRepo         = "CNI_IMAGE_REPO"
-	envCNSImageRepo         = "CNS_IMAGE_REPO"
-	envAzureIPAMImageRepo   = "IPAM_IMAGE_REPO"
-	EnvInstallCNS           = "INSTALL_CNS"
-	cnsLinuxLabelSelector   = "k8s-app=azure-cns"
-	cnsWindowsLabelSelector = "k8s-app=azure-cns-win"
-	acnImageRepoURL         = "acnpublic.azurecr.io"
-	mcrImageRepoURL         = "mcr.microsoft.com/containernetworking"
+	envAzureIPAMVersion      = "AZURE_IPAM_VERSION"
+	envCNIVersion            = "CNI_VERSION"
+	envCNSVersion            = "CNS_VERSION"
+	envCNIImageRepo          = "CNI_IMAGE_REPO"
+	envCNSImageRepo          = "CNS_IMAGE_REPO"
+	envAzureIPAMImageRepo    = "IPAM_IMAGE_REPO"
+	envCNIImageNameOverride  = "CNI_IMAGE_NAME_OVERRIDE"
+	envCNSImageNameOverride  = "CNS_IMAGE_NAME_OVERRIDE"
+	envIPAMImageNameOverride = "IPAM_IMAGE_NAME_OVERRIDE"
+	EnvInstallCNS            = "INSTALL_CNS"
+	cnsLinuxLabelSelector    = "k8s-app=azure-cns"
+	cnsWindowsLabelSelector  = "k8s-app=azure-cns-win"
+	acnImageRepoURL          = "acnpublic.azurecr.io"
+	mcrImageRepoURL          = "mcr.microsoft.com/containernetworking"
 )
 
 var imageRepoURL = map[string]string{
@@ -374,7 +377,13 @@ func initCNSScenarioVars() (map[CNSScenario]map[corev1.OSName]cnsDetails, error)
 		log.Printf("%s not set to expected value \"ACN\", \"MCR\". Default to %s", envCNIImageRepo, imageRepoURL["ACN"])
 		url = imageRepoURL["ACN"]
 	}
-	initContainerNameCNI := path.Join(url, "azure-cni:") + os.Getenv(envCNIVersion)
+
+	cniImageName := "azure-cni"
+	if len(os.Getenv(string(envCNIImageNameOverride))) > 1 {
+		cniImageName = os.Getenv(string(envCNIImageNameOverride))
+	}
+	cniImageName += ":"
+	initContainerNameCNI := path.Join(url, cniImageName) + os.Getenv(envCNIVersion)
 	log.Printf("CNI init container image - %v", initContainerNameCNI)
 
 	url, key = imageRepoURL[os.Getenv(string(envAzureIPAMImageRepo))]
@@ -382,7 +391,14 @@ func initCNSScenarioVars() (map[CNSScenario]map[corev1.OSName]cnsDetails, error)
 		log.Printf("%s not set to expected value \"ACN\", \"MCR\". Default to %s", envAzureIPAMImageRepo, imageRepoURL["ACN"])
 		url = imageRepoURL["ACN"]
 	}
-	initContainerNameIPAM := path.Join(url, "azure-ipam:") + os.Getenv(envAzureIPAMVersion)
+
+	ipamImageName := "azure-ipam"
+	if len(os.Getenv(string(envIPAMImageNameOverride))) > 1 {
+		ipamImageName = os.Getenv(string(envIPAMImageNameOverride))
+	}
+	ipamImageName += ":"
+
+	initContainerNameIPAM := path.Join(url, ipamImageName) + os.Getenv(envAzureIPAMVersion)
 	log.Printf("IPAM init container image - %v", initContainerNameIPAM)
 
 	// cns scenario map
@@ -674,7 +690,13 @@ func parseCNSDaemonset(cnsScenarioMap map[CNSScenario]map[corev1.OSName]cnsDetai
 			url = imageRepoURL["ACN"]
 		}
 
-		cns.Spec.Template.Spec.Containers[0].Image = path.Join(url, "azure-cns:") + cnsVersion
+		cnsImageName := "azure-cns"
+		if len(os.Getenv(string(envCNSImageNameOverride))) > 1 {
+			cnsImageName = os.Getenv(string(envCNSImageNameOverride))
+		}
+		cnsImageName += ":"
+
+		cns.Spec.Template.Spec.Containers[0].Image = path.Join(url, cnsImageName) + cnsVersion
 
 		log.Printf("Checking environment scenario")
 		cns.Spec.Template.Spec.InitContainers[0].Image = cnsScenarioDetails.initContainerName
