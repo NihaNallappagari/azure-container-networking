@@ -137,87 +137,6 @@ func (c *Client) GetNCVersionsFromIMDS(ctx context.Context) (map[string]string, 
 	return ncVersions, nil
 }
 
-// GetNetworkInterfaces returns all network interfaces from IMDS metadata
-func (c *Client) GetNetworkInterfaces(ctx context.Context) ([]NetworkInterface, error) {
-	var interfaces []NetworkInterface
-	err := retry.Do(func() error {
-		networkMetadata, err := c.getInstanceMetadata(ctx, imdsNetworkPath)
-		if err != nil {
-			return errors.Wrap(err, "error getting IMDS network metadata")
-		}
-
-		// Try to parse the network metadata as the expected structure
-		var networkData NetworkMetadata
-
-		// Convert the map to JSON and back to properly unmarshal into struct
-		jsonData, err := json.Marshal(networkMetadata)
-		if err != nil {
-			return errors.Wrap(err, "error marshaling network metadata")
-		}
-
-		if err := json.Unmarshal(jsonData, &networkData); err != nil {
-			return errors.Wrap(err, "error unmarshaling network metadata")
-		}
-
-		interfaces = networkData.Interface
-		return nil
-	}, retry.Context(ctx), retry.Attempts(c.config.retryAttempts), retry.DelayType(retry.BackOffDelay))
-
-	if err != nil {
-		return nil, errors.Wrap(err, "exhausted retries querying IMDS network metadata")
-	}
-
-	return interfaces, nil
-}
-
-// GetNetworkInterfaceMACs returns a slice of MAC addresses from all network interfaces
-func (c *Client) GetNetworkInterfaceMACs(ctx context.Context) ([]string, error) {
-	interfaces, err := c.GetNetworkInterfaces(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "error getting network interfaces")
-	}
-
-	var macs []string
-	for _, iface := range interfaces {
-		if iface.MacAddress != "" {
-			macs = append(macs, iface.MacAddress)
-		}
-	}
-
-	return macs, nil
-}
-
-// GetAllNCVersions returns a map of NC ID to NC Version for all interfaces that have both
-func (c *Client) GetAllNCVersions(ctx context.Context) (map[string]string, error) {
-	networkMetadata, err := c.getInstanceMetadata(ctx, imdsNetworkPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "error getting IMDS network metadata")
-	}
-
-	// Try to parse the network metadata as the expected structure
-	var networkData NetworkMetadata
-
-	// Convert the map to JSON and back to properly unmarshal into struct
-	jsonData, err := json.Marshal(networkMetadata)
-	if err != nil {
-		return nil, errors.Wrap(err, "error marshaling network metadata")
-	}
-
-	if err := json.Unmarshal(jsonData, &networkData); err != nil {
-		return nil, errors.Wrap(err, "error unmarshaling network metadata")
-	}
-
-	// Collect all NC IDs and their versions
-	ncVersions := make(map[string]string)
-	for _, iface := range networkData.Interface {
-		if iface.NcId != "" && iface.NCVersion != "" {
-			ncVersions[iface.NcId] = iface.NCVersion
-		}
-	}
-
-	return ncVersions, nil
-}
-
 // GetNCVersionByID returns the NC version for a specific NC ID, or empty string if not found
 func (c *Client) GetNCVersionByID(ctx context.Context, ncID string) (string, error) {
 	ncVersions, err := c.GetNCVersionsFromIMDS(ctx)
@@ -268,23 +187,29 @@ func (c *Client) getInstanceMetadata(ctx context.Context, imdsComputePath string
 
 // NetworkInterface represents a network interface from IMDS
 type NetworkInterface struct {
-	IPv4 struct {
-		IPAddress []struct {
-			PrivateIPAddress string `json:"privateIpAddress"`
-			PublicIPAddress  string `json:"publicIpAddress"`
-		} `json:"ipAddress"`
-		Subnet []struct {
-			Address string `json:"address"`
-			Prefix  string `json:"prefix"`
-		} `json:"subnet"`
-	} `json:"ipv4"`
-	IPv6 struct {
-		IPAddress []interface{} `json:"ipAddress"`
-	} `json:"ipv6"`
 	MacAddress string `json:"macAddress"`
 	NCVersion  string `json:"ncVersion"`
-	NcId       string `json:"ncId,omitempty"` // Optional, not always present
+	NcId       string `json:"ncId,omitempty"`
 }
+
+// type NetworkInterface struct {
+// 	IPv4 struct {
+// 		IPAddress []struct {
+// 			PrivateIPAddress string `json:"privateIpAddress"`
+// 			PublicIPAddress  string `json:"publicIpAddress"`
+// 		} `json:"ipAddress"`
+// 		Subnet []struct {
+// 			Address string `json:"address"`
+// 			Prefix  string `json:"prefix"`
+// 		} `json:"subnet"`
+// 	} `json:"ipv4"`
+// 	IPv6 struct {
+// 		IPAddress []interface{} `json:"ipAddress"`
+// 	} `json:"ipv6"`
+// 	MacAddress string `json:"macAddress"`
+// 	NCVersion  string `json:"ncVersion"`
+// 	NcId       string `json:"ncId,omitempty"`
+// }
 
 // NetworkMetadata represents the network metadata from IMDS
 type NetworkMetadata struct {

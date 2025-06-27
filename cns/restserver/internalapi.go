@@ -27,17 +27,8 @@ import (
 )
 
 const (
-	// URL to query NMAgent version and determine supported APIs
-	nmAgentSupportedApisURL = "http://168.63.129.16/machine/plugins/?comp=nmagent&type=GetSupportedApis"
 	// Known API names we care about
-	nmAgentSnatSupportAPI = "NetworkManagementSnatSupport"
-	nmAgentDnsSupportAPI  = "NetworkManagementDNSSupport"
-
-	// IMDS constants
-	imdsComputeAPIVersion = "api-version=2021-01-01"
-	imdsFormatJSON        = "format=json"
-	metadataHeaderKey     = "Metadata"
-	metadataHeaderValue   = "true"
+	nmAgentDnsSupportAPI = "NetworkManagementDNSSupport"
 )
 
 // This file contains the internal functions called by either HTTP APIs (api.go) or
@@ -672,67 +663,6 @@ func (service *HTTPRestService) SetVFForAccelnetNICs() error {
 	return service.setVFForAccelnetNICs()
 }
 
-// queryNMAgentSupportedAPIs queries the NMAgent for all supported APIs and returns them
-// func queryNMAgentSupportedAPIs(ctx context.Context) ([]string, error) {
-// 	client := &http.Client{
-// 		Timeout: 10 * time.Second,
-// 	}
-
-// 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, nmAgentSupportedApisURL, nil)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed creating http request: %w", err)
-// 	}
-
-// 	logger.Printf("[queryNMAgentSupportedAPIs] Querying NMAgent for supported APIs: %s", nmAgentSupportedApisURL)
-
-// 	resp, err := client.Do(req)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to query NMAgent: %w", err)
-// 	}
-// 	defer resp.Body.Close()
-
-// 	if resp.StatusCode != http.StatusOK {
-// 		return nil, fmt.Errorf("NMAgent returned status code: %d", resp.StatusCode)
-// 	}
-
-// 	// Read response body
-// 	bodyBytes := make([]byte, 0, 1024)
-// 	buffer := make([]byte, 512)
-// 	for {
-// 		n, err := resp.Body.Read(buffer)
-// 		if n > 0 {
-// 			bodyBytes = append(bodyBytes, buffer[:n]...)
-// 		}
-// 		if err != nil {
-// 			break
-// 		}
-// 	}
-
-// 	bodyStr := string(bodyBytes)
-// 	logger.Printf("[queryNMAgentSupportedAPIs] NMAgent response: %s", bodyStr)
-
-// 	// Parse the response - try JSON array first
-// 	var apis []string
-// 	if err := json.Unmarshal([]byte(bodyStr), &apis); err != nil {
-// 		// If it's not a JSON array, try to parse as text/split by commas or newlines
-// 		logger.Printf("[queryNMAgentSupportedAPIs] Response is not JSON array, parsing as text")
-// 		if strings.Contains(bodyStr, ",") {
-// 			apis = strings.Split(bodyStr, ",")
-// 		} else if strings.Contains(bodyStr, "\n") {
-// 			apis = strings.Split(bodyStr, "\n")
-// 		} else {
-// 			apis = []string{bodyStr}
-// 		}
-
-// 		// Clean up whitespace
-// 		for i, api := range apis {
-// 			apis[i] = strings.TrimSpace(api)
-// 		}
-// 	}
-
-// 	return apis, nil
-// }
-
 // checkNMAgentAPISupport checks if specific APIs are supported by NMAgent using the existing client
 func (service *HTTPRestService) checkNMAgentAPISupport(ctx context.Context) (dnsSupport bool, err error) {
 	// Use the existing NMAgent client instead of direct HTTP calls
@@ -758,52 +688,12 @@ func (service *HTTPRestService) checkNMAgentAPISupport(ctx context.Context) (dns
 	return dnsSupport, nil
 }
 
-// CheckDNSSupportAndSyncNC implements the logic to check DNS support and conditionally sync NC version
-// func (service *HTTPRestService) CheckDNSSupportAndSyncNC(ctx context.Context, channelMode string, ncID string) error {
-// 	logger.Printf("[CheckDNSSupportAndSyncNC] Starting DNS support check and conditional NC sync for NC ID: %s", ncID)
-
-// 	// Step 1: Check NMAgent API support for DNS
-// 	dnsSupport, err := service.checkNMAgentAPISupport(ctx)
-// 	if err != nil {
-// 		logger.Printf("[CheckDNSSupportAndSyncNC] Failed to check NMAgent API support: %v", err)
-// 		return err
-// 	}
-
-// 	// Step 2: If DNS support doesn't exist, return error
-// 	if !dnsSupport {
-// 		logger.Printf("[CheckDNSSupportAndSyncNC] DNS support API not found")
-// 		return fmt.Errorf("DNS support API not found")
-// 	}
-
-// 	logger.Printf("[CheckDNSSupportAndSyncNC] DNS support API exists, proceeding to get NC version for NC ID: %s", ncID)
-
-// 	// Step 3: If DNS support exists, try to get NC version from IMDS for the specific NC ID
-// 	imdsClient := imds.NewClient()
-
-// 	// Get NC version for the specific NC ID (no retries needed as per request)
-// 	ncVersion, err := imdsClient.GetNCVersionByID(ctx, ncID)
-// 	if err != nil {
-// 		logger.Printf("[CheckDNSSupportAndSyncNC] Failed to get NC version from IMDS for NC ID %s: %v", ncID, err)
-// 		return err
-// 	}
-
-// 	// Step 4: Check if NC version is present for the specific NC ID
-// 	if ncVersion == "" {
-// 		logger.Printf("[CheckDNSSupportAndSyncNC] NC ID %s not found in IMDS or has no version, ignoring", ncID)
-// 		return fmt.Errorf("NC ID %s not found in IMDS or has no version", ncID)
-// 	}
-
-// 	// Success case - NC version found for the specific NC ID
-// 	logger.Printf("[CheckDNSSupportAndSyncNC] Successfully got NC version from IMDS for NC ID %s: version %s", ncID, ncVersion)
-// 	return nil
-// }
-
 // GetIMDSNCVersions gets NC versions from IMDS and returns them as a map
 func (service *HTTPRestService) GetIMDSNCVersions(ctx context.Context) (map[string]string, error) {
 	logger.Printf("[GetIMDSNCVersions] Getting NC versions from IMDS")
 
 	// Check NMAgent API support for DNS, if it fails return empty map assuming support might not be available in that nma build
-	dnsSupport, err := service.checkNMAgentAPISupport(ctx)
+	dnsSupport, err := service.checkNMAgentAPISupport(ctx) // might need to check for this SwiftV2DhcpRehydrationFromGoalState
 	if err != nil && !dnsSupport {
 		logger.Printf("[GetIMDSNCVersions] Failed to check NMAgent API support or DNS support API not found, returning empty map: %v", err)
 		return make(map[string]string), nil
