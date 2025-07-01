@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/avast/retry-go/v4"
 	"github.com/pkg/errors"
 )
@@ -119,12 +118,12 @@ func (c *Client) GetNCVersionsFromIMDS(ctx context.Context) (map[string]string, 
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshaling network metadata")
 	}
-	logger.Printf("IMDS network metadata JSON: %s", string(jsonData))
+	//	logger.Printf("IMDS network metadata JSON: %s", string(jsonData))
 
 	if err := json.Unmarshal(jsonData, &networkData); err != nil {
 		return nil, errors.Wrap(err, "error unmarshaling network metadata")
 	}
-	logger.Printf("Parsed IMDS network metadata: %+v", networkData)
+	//	logger.Printf("Parsed IMDS network metadata: %+v", networkData)
 	// Collect all NC IDs and their versions (empty string if version doesn't exist)
 	ncVersions := make(map[string]string)
 	for _, iface := range networkData.Interface {
@@ -138,20 +137,20 @@ func (c *Client) GetNCVersionsFromIMDS(ctx context.Context) (map[string]string, 
 }
 
 // GetNCVersionByID returns the NC version for a specific NC ID, or empty string if not found
-func (c *Client) GetNCVersionByID(ctx context.Context, ncID string) (string, error) {
-	ncVersions, err := c.GetNCVersionsFromIMDS(ctx)
-	if err != nil {
-		return "", err
-	}
+// func (c *Client) GetNCVersionByID(ctx context.Context, ncID string) (string, error) {
+// 	ncVersions, err := c.GetNCVersionsFromIMDS(ctx)
+// 	if err != nil {
+// 		return "", err
+// 	}
 
-	// Return the version for the specific NC ID, or empty string if not found
-	version, exists := ncVersions[ncID]
-	if !exists {
-		return "", nil // NC ID not found, return empty string
-	}
+// 	// Return the version for the specific NC ID, or empty string if not found
+// 	version, exists := ncVersions[ncID]
+// 	if !exists {
+// 		return "", nil // NC ID not found, return empty string
+// 	}
 
-	return version, nil
-}
+// 	return version, nil
+// }
 
 func (c *Client) getInstanceMetadata(ctx context.Context, imdsComputePath string) (map[string]any, error) {
 	imdsComputeURL, err := url.JoinPath(c.config.endpoint, imdsComputePath)
