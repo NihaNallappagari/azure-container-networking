@@ -173,7 +173,6 @@ func (service *HTTPRestService) SyncHostNCVersion(ctx context.Context, channelMo
 	service.Lock()
 	defer service.Unlock()
 	start := time.Now()
-
 	programmedNCCount, err := service.syncHostNCVersion(ctx, channelMode)
 	// even if we get an error, we want to write the CNI conflist if we have any NC programmed to any version
 	if programmedNCCount > 0 {
@@ -209,7 +208,6 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 			logger.Errorf("Received err when change nc version %s in containerstatus to int, err msg %v", service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version, err)
 			continue
 		}
-		logger.Printf("NC %s: local NC version %d, DNC NC version %d", service.state.ContainerStatus[idx].ID, localNCVersion, dncNCVersion)
 		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
 		if localNCVersion < dncNCVersion {
 			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
@@ -224,7 +222,6 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	if len(outdatedNCs) == 0 {
 		return len(programmedNCs), nil
 	}
-	logger.Printf("outdatedNCs: %v", outdatedNCs)
 	ncVersionListResp, err := service.nma.GetNCVersionList(ctx)
 	if err != nil {
 		return len(programmedNCs), errors.Wrap(err, "failed to get nc version list from nmagent")

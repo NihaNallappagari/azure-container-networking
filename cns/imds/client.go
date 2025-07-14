@@ -56,7 +56,6 @@ const (
 	metadataHeaderValue   = "true"
 	defaultRetryAttempts  = 3
 	defaultIMDSEndpoint   = "http://169.254.169.254"
-	ncVersion             = "ncVersion"
 )
 
 var (
