@@ -279,6 +279,63 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	return len(programmedNCs), nil
 }
 
+// some version, NOT the number of NCs that are up-to-date.
+// func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMode string) (int, error) {
+// 	// Skip NC version validation and mark all IPs as available for all NCs
+// 	logger.Printf("Skipping NC version validation and marking all IPs as available for all NCs")
+
+// 	programmedNCs := map[string]struct{}{}
+
+// 	// Iterate through all NCs and mark their IPs as available
+// 	for ncID, ncInfo := range service.state.ContainerStatus {
+// 		// Mark this NC as programmed (skip version check)
+// 		programmedNCs[ncID] = struct{}{}
+
+// 		// Mark all IPs in this NC as available (skip pending programming state)
+// 		if channelMode == cns.CRD {
+// 			for uuid, secondaryIPConfig := range ncInfo.CreateNetworkContainerRequest.SecondaryIPConfigs {
+// 				if ipConfigStatus, exists := service.PodIPConfigState[uuid]; exists {
+// 					// Only update if the IP is not already assigned
+// 					if ipConfigStatus.GetState() != types.Assigned {
+// 						_, err := service.updateIPConfigState(uuid, types.Available, nil)
+// 						if err != nil {
+// 							logger.Errorf("Error updating IPConfig [%+v] state to Available, err: %+v", ipConfigStatus, err)
+// 							continue
+// 						}
+
+// 						// Update the NC version for this secondary IP config to match DNC version
+// 						dncNCVersion, err := strconv.Atoi(ncInfo.CreateNetworkContainerRequest.Version)
+// 						if err != nil {
+// 							logger.Errorf("Failed to parse DNC NC version %s for NC %s: %v", ncInfo.CreateNetworkContainerRequest.Version, ncID, err)
+// 							continue
+// 						}
+
+// 						secondaryIPConfig.NCVersion = dncNCVersion
+// 						ncInfo.CreateNetworkContainerRequest.SecondaryIPConfigs[uuid] = secondaryIPConfig
+// 						logger.Printf("Marked IP %s with uuid %s as available for NC %s", ipConfigStatus.IPAddress, uuid, ncID)
+// 					}
+// 				} else {
+// 					logger.Errorf("IP config with uuid %s exists in NC %s but not found in PodIPConfigState", uuid, ncID)
+// 				}
+// 			}
+
+// 			// Update the container status in service state
+// 			service.state.ContainerStatus[ncID] = ncInfo
+// 		}
+
+// 		// Update host version to match DNC version (skip NMAgent validation)
+// 		dncVersion := ncInfo.CreateNetworkContainerRequest.Version
+// 		if ncInfo.HostVersion != dncVersion {
+// 			logger.Printf("Updating NC %s host version from %s to %s (skipping NMAgent validation)", ncID, ncInfo.HostVersion, dncVersion)
+// 			ncInfo.HostVersion = dncVersion
+// 			service.state.ContainerStatus[ncID] = ncInfo
+// 		}
+// 	}
+
+// 	logger.Printf("Marked all IPs as available for %d NCs, skipping NC version validation", len(programmedNCs))
+// 	return len(programmedNCs), nil
+// }
+
 func (service *HTTPRestService) ReconcileIPAssignment(podInfoByIP map[string]cns.PodInfo, ncReqs []*cns.CreateNetworkContainerRequest) types.ResponseCode {
 	// index all the secondary IP configs for all the nc reqs, for easier lookup later on.
 	allSecIPsIdx := make(map[string]*cns.CreateNetworkContainerRequest)

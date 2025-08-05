@@ -112,7 +112,7 @@ func (p *IPAMPlugin) CmdAdd(args *cniSkel.CmdArgs) error {
 			return cniTypes.NewError(ErrRequestIPConfigFromCNS, err.Error(), "failed to request IP address from CNS")
 		}
 	}
-	p.logger.Debug("Received CNS IP config response", zap.Any("response", resp))
+	p.logger.Debug("Received CNS IP config modified response", zap.Any("response", resp))
 
 	// Get Pod IP and gateway IP from ip config response
 	podIPNet, gatewayIP, err := ipconfig.ProcessIPConfigsResp(resp)

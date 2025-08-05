@@ -86,6 +86,7 @@ func ProcessIPConfigsResp(resp *cns.IPConfigsResponse) (*[]netip.Prefix, *[]net.
 		if podIPNet.Addr().Is4() {
 			gatewayStr = resp.PodIPInfo[i].NetworkContainerPrimaryIPConfig.GatewayIPAddress
 		} else if podIPNet.Addr().Is6() {
+			//	gatewayStr = "fe80::1234:5678:9abc"
 			gatewayStr = resp.PodIPInfo[i].NetworkContainerPrimaryIPConfig.GatewayIPv6Address
 		}
 
