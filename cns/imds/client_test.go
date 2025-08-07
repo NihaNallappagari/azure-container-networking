@@ -27,7 +27,7 @@ func TestGetVMUniqueID(t *testing.T) {
 
 		// query params should include apiversion and json format
 		apiVersion := r.URL.Query().Get("api-version")
-		assert.Equal(t, "2021-01-01", apiVersion)
+		assert.Equal(t, "2025-07-24", apiVersion)
 		format := r.URL.Query().Get("format")
 		assert.Equal(t, "json", format)
 		w.WriteHeader(http.StatusOK)
@@ -87,7 +87,7 @@ func TestInvalidVMUniqueID(t *testing.T) {
 
 		// query params should include apiversion and json format
 		apiVersion := r.URL.Query().Get("api-version")
-		assert.Equal(t, "2021-01-01", apiVersion)
+		assert.Equal(t, "2025-07-24", apiVersion)
 		format := r.URL.Query().Get("format")
 		assert.Equal(t, "json", format)
 		w.WriteHeader(http.StatusOK)

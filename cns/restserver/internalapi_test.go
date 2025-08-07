@@ -252,7 +252,7 @@ func TestSyncHostNCVersion(t *testing.T) {
 					}, nil
 				},
 				SupportedAPIsF: func(_ context.Context) ([]string, error) {
-					return []string{"SwiftV2DhcpRehydrationFromGoalState", "OtherAPI"}, nil
+					return []string{"EnableSwiftV2NCGoalStateSupport", "OtherAPI"}, nil
 				},
 			}
 			cleanup := setMockNMAgent(svc, mnma)
@@ -322,7 +322,7 @@ func TestPendingIPsGotUpdatedWhenSyncHostNCVersion(t *testing.T) {
 			}, nil
 		},
 		SupportedAPIsF: func(_ context.Context) ([]string, error) {
-			return []string{"SwiftV2DhcpRehydrationFromGoalState", "OtherAPI"}, nil
+			return []string{"EnableSwiftV2NCGoalStateSupport", "OtherAPI"}, nil
 		},
 	}
 	cleanup := setMockNMAgent(svc, mnma)
