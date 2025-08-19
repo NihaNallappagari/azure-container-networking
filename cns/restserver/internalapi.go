@@ -187,154 +187,154 @@ var errNonExistentContainerStatus = errors.New("nonExistantContainerstatus")
 // does not match the version that DNC claims to have published, this function will call NMAgent and list the latest programmed versions of
 // all NCs and update the CNS state accordingly. This function returns the the total number of NCs on this VM that have been programmed to
 // some version, NOT the number of NCs that are up-to-date.
-func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMode string) (int, error) {
-	outdatedNCs := map[string]struct{}{}
-	programmedNCs := map[string]struct{}{}
-	for idx := range service.state.ContainerStatus {
-		// Will open a separate PR to convert all the NC version related variable to int. Change from string to int is a pain.
-		localNCVersion, err := strconv.Atoi(service.state.ContainerStatus[idx].HostVersion)
-		if err != nil {
-			logger.Errorf("Received err when change containerstatus.HostVersion %s to int, err msg %v", service.state.ContainerStatus[idx].HostVersion, err)
-			continue
-		}
-		dncNCVersion, err := strconv.Atoi(service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version)
-		if err != nil {
-			logger.Errorf("Received err when change nc version %s in containerstatus to int, err msg %v", service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version, err)
-			continue
-		}
-		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
-		if localNCVersion < dncNCVersion {
-			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
-		} else if localNCVersion > dncNCVersion {
-			logger.Errorf("NC version from NMAgent is larger than DNC, NC version from NMAgent is %d, NC version from DNC is %d", localNCVersion, dncNCVersion)
-		}
-
-		if localNCVersion > -1 {
-			programmedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
-		}
-	}
-	if len(outdatedNCs) == 0 {
-		return len(programmedNCs), nil
-	}
-	// Todo: Query NMA for the supported API to validate the build version. If supported, query IMDS for the Swiftv2 NC version list and perform synchostversion update.
-	// WorkItem: https://msazure.visualstudio.com/One/_workitems/edit/33460135
-	ncVersionListResp, err := service.nma.GetNCVersionList(ctx)
-	if err != nil {
-		return len(programmedNCs), errors.Wrap(err, "failed to get nc version list from nmagent")
-	}
-
-	nmaNCs := map[string]string{}
-	for _, nc := range ncVersionListResp.Containers {
-		nmaNCs[strings.ToLower(nc.NetworkContainerID)] = nc.Version
-	}
-	hasNC.Set(float64(len(nmaNCs)))
-	for ncID := range outdatedNCs {
-		nmaNCVersionStr, ok := nmaNCs[ncID]
-		if !ok {
-			// NMA doesn't have this NC that we need programmed yet, bail out
-			continue
-		}
-		nmaNCVersion, err := strconv.Atoi(nmaNCVersionStr)
-		if err != nil {
-			logger.Errorf("failed to parse container version of %s: %s", ncID, err)
-			continue
-		}
-		// Check whether it exist in service state and get the related nc info
-		ncInfo, exist := service.state.ContainerStatus[ncID]
-		if !exist {
-			// if we marked this NC as needs update, but it no longer exists in internal state when we reach
-			// this point, our internal state has changed unexpectedly and we should bail out and try again.
-			return len(programmedNCs), errors.Wrapf(errNonExistentContainerStatus, "can't find NC with ID %s in service state, stop updating this host NC version", ncID)
-		}
-		// if the NC still exists in state and is programmed to some version (doesn't have to be latest), add it to our set of NCs that have been programmed
-		if nmaNCVersion > -1 {
-			programmedNCs[ncID] = struct{}{}
-		}
-
-		localNCVersion, err := strconv.Atoi(ncInfo.HostVersion)
-		if err != nil {
-			logger.Errorf("failed to parse host nc version string %s: %s", ncInfo.HostVersion, err)
-			continue
-		}
-		if localNCVersion > nmaNCVersion {
-			logger.Errorf("NC version from NMA is decreasing: have %d, got %d", localNCVersion, nmaNCVersion)
-			continue
-		}
-		if channelMode == cns.CRD {
-			service.MarkIpsAsAvailableUntransacted(ncInfo.ID, nmaNCVersion)
-		}
-		logger.Printf("Updating NC %s host version from %s to %s", ncID, ncInfo.HostVersion, nmaNCVersionStr)
-		ncInfo.HostVersion = nmaNCVersionStr
-		logger.Printf("Updated NC %s host version to %s", ncID, ncInfo.HostVersion)
-		service.state.ContainerStatus[ncID] = ncInfo
-		// if we successfully updated the NC, pop it from the needs update set.
-		delete(outdatedNCs, ncID)
-	}
-	// if we didn't empty out the needs update set, NMA has not programmed all the NCs we are expecting, and we
-	// need to return an error indicating that
-	if len(outdatedNCs) > 0 {
-		return len(programmedNCs), errors.Errorf("unabled to update some NCs: %v, missing or bad response from NMA", outdatedNCs)
-	}
-
-	return len(programmedNCs), nil
-}
-
-// some version, NOT the number of NCs that are up-to-date.
 // func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMode string) (int, error) {
-// 	// Skip NC version validation and mark all IPs as available for all NCs
-// 	logger.Printf("Skipping NC version validation and marking all IPs as available for all NCs")
-
+// 	outdatedNCs := map[string]struct{}{}
 // 	programmedNCs := map[string]struct{}{}
-
-// 	// Iterate through all NCs and mark their IPs as available
-// 	for ncID, ncInfo := range service.state.ContainerStatus {
-// 		// Mark this NC as programmed (skip version check)
-// 		programmedNCs[ncID] = struct{}{}
-
-// 		// Mark all IPs in this NC as available (skip pending programming state)
-// 		if channelMode == cns.CRD {
-// 			for uuid, secondaryIPConfig := range ncInfo.CreateNetworkContainerRequest.SecondaryIPConfigs {
-// 				if ipConfigStatus, exists := service.PodIPConfigState[uuid]; exists {
-// 					// Only update if the IP is not already assigned
-// 					if ipConfigStatus.GetState() != types.Assigned {
-// 						_, err := service.updateIPConfigState(uuid, types.Available, nil)
-// 						if err != nil {
-// 							logger.Errorf("Error updating IPConfig [%+v] state to Available, err: %+v", ipConfigStatus, err)
-// 							continue
-// 						}
-
-// 						// Update the NC version for this secondary IP config to match DNC version
-// 						dncNCVersion, err := strconv.Atoi(ncInfo.CreateNetworkContainerRequest.Version)
-// 						if err != nil {
-// 							logger.Errorf("Failed to parse DNC NC version %s for NC %s: %v", ncInfo.CreateNetworkContainerRequest.Version, ncID, err)
-// 							continue
-// 						}
-
-// 						secondaryIPConfig.NCVersion = dncNCVersion
-// 						ncInfo.CreateNetworkContainerRequest.SecondaryIPConfigs[uuid] = secondaryIPConfig
-// 						logger.Printf("Marked IP %s with uuid %s as available for NC %s", ipConfigStatus.IPAddress, uuid, ncID)
-// 					}
-// 				} else {
-// 					logger.Errorf("IP config with uuid %s exists in NC %s but not found in PodIPConfigState", uuid, ncID)
-// 				}
-// 			}
-
-// 			// Update the container status in service state
-// 			service.state.ContainerStatus[ncID] = ncInfo
+// 	for idx := range service.state.ContainerStatus {
+// 		// Will open a separate PR to convert all the NC version related variable to int. Change from string to int is a pain.
+// 		localNCVersion, err := strconv.Atoi(service.state.ContainerStatus[idx].HostVersion)
+// 		if err != nil {
+// 			logger.Errorf("Received err when change containerstatus.HostVersion %s to int, err msg %v", service.state.ContainerStatus[idx].HostVersion, err)
+// 			continue
+// 		}
+// 		dncNCVersion, err := strconv.Atoi(service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version)
+// 		if err != nil {
+// 			logger.Errorf("Received err when change nc version %s in containerstatus to int, err msg %v", service.state.ContainerStatus[idx].CreateNetworkContainerRequest.Version, err)
+// 			continue
+// 		}
+// 		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
+// 		if localNCVersion < dncNCVersion {
+// 			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
+// 		} else if localNCVersion > dncNCVersion {
+// 			logger.Errorf("NC version from NMAgent is larger than DNC, NC version from NMAgent is %d, NC version from DNC is %d", localNCVersion, dncNCVersion)
 // 		}
 
-// 		// Update host version to match DNC version (skip NMAgent validation)
-// 		dncVersion := ncInfo.CreateNetworkContainerRequest.Version
-// 		if ncInfo.HostVersion != dncVersion {
-// 			logger.Printf("Updating NC %s host version from %s to %s (skipping NMAgent validation)", ncID, ncInfo.HostVersion, dncVersion)
-// 			ncInfo.HostVersion = dncVersion
-// 			service.state.ContainerStatus[ncID] = ncInfo
+// 		if localNCVersion > -1 {
+// 			programmedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
 // 		}
 // 	}
+// 	if len(outdatedNCs) == 0 {
+// 		return len(programmedNCs), nil
+// 	}
+// 	// Todo: Query NMA for the supported API to validate the build version. If supported, query IMDS for the Swiftv2 NC version list and perform synchostversion update.
+// 	// WorkItem: https://msazure.visualstudio.com/One/_workitems/edit/33460135
+// 	ncVersionListResp, err := service.nma.GetNCVersionList(ctx)
+// 	if err != nil {
+// 		return len(programmedNCs), errors.Wrap(err, "failed to get nc version list from nmagent")
+// 	}
 
-// 	logger.Printf("Marked all IPs as available for %d NCs, skipping NC version validation", len(programmedNCs))
+// 	nmaNCs := map[string]string{}
+// 	for _, nc := range ncVersionListResp.Containers {
+// 		nmaNCs[strings.ToLower(nc.NetworkContainerID)] = nc.Version
+// 	}
+// 	hasNC.Set(float64(len(nmaNCs)))
+// 	for ncID := range outdatedNCs {
+// 		nmaNCVersionStr, ok := nmaNCs[ncID]
+// 		if !ok {
+// 			// NMA doesn't have this NC that we need programmed yet, bail out
+// 			continue
+// 		}
+// 		nmaNCVersion, err := strconv.Atoi(nmaNCVersionStr)
+// 		if err != nil {
+// 			logger.Errorf("failed to parse container version of %s: %s", ncID, err)
+// 			continue
+// 		}
+// 		// Check whether it exist in service state and get the related nc info
+// 		ncInfo, exist := service.state.ContainerStatus[ncID]
+// 		if !exist {
+// 			// if we marked this NC as needs update, but it no longer exists in internal state when we reach
+// 			// this point, our internal state has changed unexpectedly and we should bail out and try again.
+// 			return len(programmedNCs), errors.Wrapf(errNonExistentContainerStatus, "can't find NC with ID %s in service state, stop updating this host NC version", ncID)
+// 		}
+// 		// if the NC still exists in state and is programmed to some version (doesn't have to be latest), add it to our set of NCs that have been programmed
+// 		if nmaNCVersion > -1 {
+// 			programmedNCs[ncID] = struct{}{}
+// 		}
+
+// 		localNCVersion, err := strconv.Atoi(ncInfo.HostVersion)
+// 		if err != nil {
+// 			logger.Errorf("failed to parse host nc version string %s: %s", ncInfo.HostVersion, err)
+// 			continue
+// 		}
+// 		if localNCVersion > nmaNCVersion {
+// 			logger.Errorf("NC version from NMA is decreasing: have %d, got %d", localNCVersion, nmaNCVersion)
+// 			continue
+// 		}
+// 		if channelMode == cns.CRD {
+// 			service.MarkIpsAsAvailableUntransacted(ncInfo.ID, nmaNCVersion)
+// 		}
+// 		logger.Printf("Updating NC %s host version from %s to %s", ncID, ncInfo.HostVersion, nmaNCVersionStr)
+// 		ncInfo.HostVersion = nmaNCVersionStr
+// 		logger.Printf("Updated NC %s host version to %s", ncID, ncInfo.HostVersion)
+// 		service.state.ContainerStatus[ncID] = ncInfo
+// 		// if we successfully updated the NC, pop it from the needs update set.
+// 		delete(outdatedNCs, ncID)
+// 	}
+// 	// if we didn't empty out the needs update set, NMA has not programmed all the NCs we are expecting, and we
+// 	// need to return an error indicating that
+// 	if len(outdatedNCs) > 0 {
+// 		return len(programmedNCs), errors.Errorf("unabled to update some NCs: %v, missing or bad response from NMA", outdatedNCs)
+// 	}
+
 // 	return len(programmedNCs), nil
 // }
+
+// some version, NOT the number of NCs that are up-to-date.
+func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMode string) (int, error) {
+	// Skip NC version validation and mark all IPs as available for all NCs
+	logger.Printf("Skipping NC version validation and marking all IPs as available for all NCs")
+
+	programmedNCs := map[string]struct{}{}
+
+	// Iterate through all NCs and mark their IPs as available
+	for ncID, ncInfo := range service.state.ContainerStatus {
+		// Mark this NC as programmed (skip version check)
+		programmedNCs[ncID] = struct{}{}
+
+		// Mark all IPs in this NC as available (skip pending programming state)
+		if channelMode == cns.CRD {
+			for uuid, secondaryIPConfig := range ncInfo.CreateNetworkContainerRequest.SecondaryIPConfigs {
+				if ipConfigStatus, exists := service.PodIPConfigState[uuid]; exists {
+					// Only update if the IP is not already assigned
+					if ipConfigStatus.GetState() != types.Assigned {
+						_, err := service.updateIPConfigState(uuid, types.Available, nil)
+						if err != nil {
+							logger.Errorf("Error updating IPConfig [%+v] state to Available, err: %+v", ipConfigStatus, err)
+							continue
+						}
+
+						// Update the NC version for this secondary IP config to match DNC version
+						dncNCVersion, err := strconv.Atoi(ncInfo.CreateNetworkContainerRequest.Version)
+						if err != nil {
+							logger.Errorf("Failed to parse DNC NC version %s for NC %s: %v", ncInfo.CreateNetworkContainerRequest.Version, ncID, err)
+							continue
+						}
+
+						secondaryIPConfig.NCVersion = dncNCVersion
+						ncInfo.CreateNetworkContainerRequest.SecondaryIPConfigs[uuid] = secondaryIPConfig
+						logger.Printf("Marked IP %s with uuid %s as available for NC %s", ipConfigStatus.IPAddress, uuid, ncID)
+					}
+				} else {
+					logger.Errorf("IP config with uuid %s exists in NC %s but not found in PodIPConfigState", uuid, ncID)
+				}
+			}
+
+			// Update the container status in service state
+			service.state.ContainerStatus[ncID] = ncInfo
+		}
+
+		// Update host version to match DNC version (skip NMAgent validation)
+		dncVersion := ncInfo.CreateNetworkContainerRequest.Version
+		if ncInfo.HostVersion != dncVersion {
+			logger.Printf("Updating NC %s host version from %s to %s (skipping NMAgent validation)", ncID, ncInfo.HostVersion, dncVersion)
+			ncInfo.HostVersion = dncVersion
+			service.state.ContainerStatus[ncID] = ncInfo
+		}
+	}
+
+	logger.Printf("Marked all IPs as available for %d NCs, skipping NC version validation", len(programmedNCs))
+	return len(programmedNCs), nil
+}
 
 func (service *HTTPRestService) ReconcileIPAssignment(podInfoByIP map[string]cns.PodInfo, ncReqs []*cns.CreateNetworkContainerRequest) types.ResponseCode {
 	// index all the secondary IP configs for all the nc reqs, for easier lookup later on.
