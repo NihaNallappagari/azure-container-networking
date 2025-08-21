@@ -5,6 +5,7 @@ package imds_test
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,7 +27,7 @@ func TestGetVMUniqueID(t *testing.T) {
 
 		// query params should include apiversion and json format
 		apiVersion := r.URL.Query().Get("api-version")
-		assert.Equal(t, "2025-01-01", apiVersion)
+		assert.Equal(t, "2021-01-01", apiVersion)
 		format := r.URL.Query().Get("format")
 		assert.Equal(t, "json", format)
 		w.WriteHeader(http.StatusOK)
@@ -86,7 +87,7 @@ func TestInvalidVMUniqueID(t *testing.T) {
 
 		// query params should include apiversion and json format
 		apiVersion := r.URL.Query().Get("api-version")
-		assert.Equal(t, "2025-07-24", apiVersion)
+		assert.Equal(t, "2021-01-01", apiVersion)
 		format := r.URL.Query().Get("format")
 		assert.Equal(t, "json", format)
 		w.WriteHeader(http.StatusOK)
@@ -102,7 +103,7 @@ func TestInvalidVMUniqueID(t *testing.T) {
 }
 
 func TestGetNetworkInterfaces(t *testing.T) {
-	networkInterfaces := []byte(`{
+    networkInterfaces := []byte(`{
         "interface": [
             {
                 "interfaceCompartmentID": "nc-12345-67890",
@@ -115,41 +116,54 @@ func TestGetNetworkInterfaces(t *testing.T) {
         ]
     }`)
 
-	mockIMDSServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// request header "Metadata: true" must be present
-		metadataHeader := r.Header.Get("Metadata")
-		assert.Equal(t, "true", metadataHeader)
+    mockIMDSServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // request header "Metadata: true" must be present
+        metadataHeader := r.Header.Get("Metadata")
+        assert.Equal(t, "true", metadataHeader)
 
-		// verify path is network metadata
-		assert.Contains(t, r.URL.Path, "/metadata/instance/network")
+        // verify path is network metadata
+        assert.Contains(t, r.URL.Path, "/metadata/instance/network")
 
-		// query params should include apiversion and json format
-		apiVersion := r.URL.Query().Get("api-version")
-		assert.Equal(t, "2025-07-24", apiVersion)
-		format := r.URL.Query().Get("format")
-		assert.Equal(t, "json", format)
+        // query params should include apiversion and json format
+        apiVersion := r.URL.Query().Get("api-version")
+        assert.Equal(t, "2025-07-24", apiVersion)
+        format := r.URL.Query().Get("format")
+        assert.Equal(t, "json", format)
 
-		w.WriteHeader(http.StatusOK)
-		_, writeErr := w.Write(networkInterfaces)
-		if writeErr != nil {
-			t.Errorf("error writing response: %v", writeErr)
-			return
-		}
-	}))
-	defer mockIMDSServer.Close()
+        w.WriteHeader(http.StatusOK)
+        _, writeErr := w.Write(networkInterfaces)
+        if writeErr != nil {
+            t.Errorf("error writing response: %v", writeErr)
+            return
+        }
+    }))
+    defer mockIMDSServer.Close()
 
-	imdsClient := imds.NewClient(imds.Endpoint(mockIMDSServer.URL))
-	interfaces, err := imdsClient.GetNetworkInterfaces(context.Background())
-	require.NoError(t, err, "error querying testserver")
+    imdsClient := imds.NewClient(imds.Endpoint(mockIMDSServer.URL))
+    interfaces, err := imdsClient.GetNetworkInterfaces(context.Background())
+    require.NoError(t, err, "error querying testserver")
 
-	// Verify we got the expected interfaces
-	require.Len(t, interfaces, 2, "expected 2 interfaces")
+    // Verify we got the expected interfaces
+    require.Len(t, interfaces, 2, "expected 2 interfaces")
 
-	// Check first interface
-	assert.Equal(t, "nc-12345-67890", interfaces[0].InterfaceCompartmentID)
+    // Check first interface
+    assert.Equal(t, "nc-12345-67890", interfaces[0].InterfaceCompartmentID)
+    assert.Equal(t, "00:00:5e:00:53:01", interfaces[0].MacAddress.String(), "first interface MAC address should match")
 
-	// Check second interface
-	assert.Equal(t, "", interfaces[1].InterfaceCompartmentID)
+    // Check second interface
+    assert.Equal(t, "", interfaces[1].InterfaceCompartmentID)
+    assert.Equal(t, "00:00:5e:00:53:02", interfaces[1].MacAddress.String(), "second interface MAC address should match")
+
+    // Test that MAC addresses can be converted to net.HardwareAddr
+    firstMAC := net.HardwareAddr(interfaces[0].MacAddress)
+    secondMAC := net.HardwareAddr(interfaces[1].MacAddress)
+    
+    // Verify the underlying types work correctly
+    assert.Equal(t, 6, len(firstMAC), "MAC address should be 6 bytes")
+    assert.Equal(t, 6, len(secondMAC), "MAC address should be 6 bytes")
+    
+    // Test that they're different MAC addresses
+    assert.NotEqual(t, firstMAC.String(), secondMAC.String(), "MAC addresses should be different")
 }
 
 func TestGetNetworkInterfacesInvalidEndpoint(t *testing.T) {
@@ -185,7 +199,8 @@ func TestGetNetworkInterfacesNoNCIDs(t *testing.T) {
                             "publicIpAddress": ""
                         }
                     ]
-                }
+                },
+				"macAddress": "00:00:5e:00:53:01"
             }
         ]
     }`)
@@ -212,4 +227,5 @@ func TestGetNetworkInterfacesNoNCIDs(t *testing.T) {
 
 	// Check that interfaces don't have compartment IDs
 	assert.Equal(t, "", interfaces[0].InterfaceCompartmentID)
+	assert.Equal(t, "00:00:5e:00:53:01", interfaces[0].MacAddress.String(), "MAC address should match")
 }

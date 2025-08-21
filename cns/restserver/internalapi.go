@@ -28,6 +28,7 @@ import (
 const (
 	// Known API names we care about
 	nmAgentSwiftV2API = "EnableSwiftV2NCGoalStateSupport"
+	expectedIMDSAPIVersion = "2025-07-24"
 )
 
 // This file contains the internal functions called by either HTTP APIs (api.go) or
@@ -227,7 +228,8 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	}
 
 	// Get IMDS NC versions for delegated NIC scenarios
-	imdsNCVersions, err := service.GetIMDSNCVersions(ctx)
+	imdsNCVersions, err := service.GetIMDSNCDetails(ctx)
+	logger.Printf("cnsDebug IMDS NC versions: %v", imdsNCVersions)
 	if err != nil {
 		// If any of the NMA API check calls, imds calls fails assume that nma build doesn't have the latest changes and create empty map
 		imdsNCVersions = make(map[string]string)
@@ -674,7 +676,9 @@ func (service *HTTPRestService) getSupportedAPIsFromNMAgent(ctx context.Context)
 }
 
 func (service *HTTPRestService) isSwiftV2NCSupported(ctx context.Context) bool {
+	logger.Printf("cnsDebug Checking if SwiftV2 NC is supported")
 	apis, err := service.getSupportedAPIsFromNMAgent(ctx)
+	logger.Printf("cnsDebug Supported APIs from NMAgent: %v", apis)
 	if err != nil {
 		//nolint:staticcheck // SA1019: suppress deprecated logger.Printf usage. Todo: legacy logger usage is consistent in cns repo. Migrates when all logger usage is migrated
 		logger.Errorf("Failed to get supported APIs from NMAgent: %v", err)
@@ -690,14 +694,47 @@ func (service *HTTPRestService) isSwiftV2NCSupported(ctx context.Context) bool {
 	return false
 }
 
+// isNCDetailsAPIExists checks if the expected IMDS API version for NC details is supported
+func (service *HTTPRestService) isNCDetailsAPIExists(ctx context.Context) bool {
+	logger.Printf("cnsDebug Checking if NC details API is supported")
+    if service.imdsClient == nil {
+        logger.Errorf("IMDS client is not available")
+        return false
+    }
+
+    versionsResp, err := service.imdsClient.GetIMDSVersions(ctx)
+    if err != nil {
+        logger.Errorf("Failed to get IMDS versions: %v", err)
+        return false
+    }
+
+	logger.Printf("cnsDebug Supported IMDS API versions: %v", versionsResp.APIVersions)
+
+    // Check if the expected API version exists in the response
+    for _, version := range versionsResp.APIVersions {
+        if version == expectedIMDSAPIVersion {
+            return true
+        }
+    }
+
+    logger.Printf("cnsDebug Expected IMDS API version %s not found in supported versions: %v", expectedIMDSAPIVersion, versionsResp.APIVersions)
+    return false
+}
 
 
-// GetIMDSNCVersions gets NC details from IMDS and returns them as a map
-func (service *HTTPRestService) GetIMDSNCVersions(ctx context.Context) (map[string]string, error) {
+// GetIMDSNCDetails gets NC details from IMDS and returns them as a map
+func (service *HTTPRestService) GetIMDSNCDetails(ctx context.Context) (map[string]string, error) {
+	logger.Printf("cnsDebug Getting NC details from IMDS")
 	// Check NMAgent API support for SwiftV2, if it fails return empty map assuming support might not be available in that nma build
 	if !service.isSwiftV2NCSupported(ctx) {
 		//nolint:staticcheck // SA1019: suppress deprecated logger.Printf usage. Todo: legacy logger usage is consistent in cns repo. Migrates when all logger usage is migrated
-		logger.Errorf("NMAgent does not support SwiftV2 API")
+		logger.Errorf("cnsDebug NMAgent does not support SwiftV2 API")
+		return make(map[string]string), nil
+	}
+
+	if !service.isNCDetailsAPIExists(ctx) {
+		//nolint:staticcheck // SA1019: suppress deprecated logger.Printf usage. Todo: legacy logger usage is consistent in cns repo. Migrates when all logger usage is migrated
+		logger.Errorf("cnsDebug NMAgent does not support NC details API")
 		return make(map[string]string), nil
 	}
 
@@ -714,9 +751,11 @@ func (service *HTTPRestService) GetIMDSNCVersions(ctx context.Context) (map[stri
 	// Build ncVersions map from the network interfaces
 	ncVersions := make(map[string]string)
 	for _, iface := range networkInterfaces {
+		logger.Printf("cnsDebug Processing interface: %+v", iface)
 		// IMDS returns interfaceCompartmentID, interfaceCompartmentVersion fields, as nc id guid has different context on nma. We map these to NC ID and NC version
 		ncID := iface.InterfaceCompartmentID
-		ncVersion := iface.InterfaceCompartmentVersion
+
+		ncVersion := "1"
 
 		if ncID != "" {
 			ncVersions[ncID] = ncVersion
