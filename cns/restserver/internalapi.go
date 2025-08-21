@@ -690,7 +690,9 @@ func (service *HTTPRestService) isSwiftV2NCSupported(ctx context.Context) bool {
 	return false
 }
 
-// GetIMDSNCVersions gets NC versions from IMDS and returns them as a map
+
+
+// GetIMDSNCVersions gets NC details from IMDS and returns them as a map
 func (service *HTTPRestService) GetIMDSNCVersions(ctx context.Context) (map[string]string, error) {
 	// Check NMAgent API support for SwiftV2, if it fails return empty map assuming support might not be available in that nma build
 	if !service.isSwiftV2NCSupported(ctx) {

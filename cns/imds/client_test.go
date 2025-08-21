@@ -26,7 +26,7 @@ func TestGetVMUniqueID(t *testing.T) {
 
 		// query params should include apiversion and json format
 		apiVersion := r.URL.Query().Get("api-version")
-		assert.Equal(t, "2025-07-24", apiVersion)
+		assert.Equal(t, "2025-01-01", apiVersion)
 		format := r.URL.Query().Get("format")
 		assert.Equal(t, "json", format)
 		w.WriteHeader(http.StatusOK)
@@ -105,12 +105,12 @@ func TestGetNetworkInterfaces(t *testing.T) {
 	networkInterfaces := []byte(`{
         "interface": [
             {
-                "interfaceCompartmentVersion": "1",
-                "interfaceCompartmentID": "nc-12345-67890"
+                "interfaceCompartmentID": "nc-12345-67890",
+                "macAddress": "00:00:5e:00:53:01"
             },
             {
-                "interfaceCompartmentVersion": "1",
-                "interfaceCompartmentID": ""
+                "interfaceCompartmentID": "",
+                "macAddress": "00:00:5e:00:53:02"
             }
         ]
     }`)
@@ -147,11 +147,9 @@ func TestGetNetworkInterfaces(t *testing.T) {
 
 	// Check first interface
 	assert.Equal(t, "nc-12345-67890", interfaces[0].InterfaceCompartmentID)
-	assert.Equal(t, "1", interfaces[0].InterfaceCompartmentVersion)
 
 	// Check second interface
 	assert.Equal(t, "", interfaces[1].InterfaceCompartmentID)
-	assert.Equal(t, "1", interfaces[1].InterfaceCompartmentVersion)
 }
 
 func TestGetNetworkInterfacesInvalidEndpoint(t *testing.T) {
