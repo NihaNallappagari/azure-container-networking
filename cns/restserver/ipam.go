@@ -998,16 +998,16 @@ func (service *HTTPRestService) AssignAvailableIPConfigs(podInfo cns.PodInfo) ([
 	}
 
 	// Get the number of distinct IP families (IPv4/IPv6) across all NC's
-	numOfIPFamilies := service.GetIPFamilyCount()
+	numberOfIPs := service.GetIPFamilyCount()
+
+	// // Determine the number of IPs to assign based on IP families found
+	// numberOfIPs := numOfNCs
+	// if numOfIPFamilies != 0 {
+	// 	numberOfIPs = numOfIPFamilies
+	// }
 
 	// Get the actual IP families map for validation
 	ncIPFamilies := service.getIPFamiliesMap()
-
-	// Determine the number of IPs to assign based on IP families found
-	numberOfIPs := numOfNCs
-	if numOfIPFamilies != 0 {
-		numberOfIPs = numOfIPFamilies
-	}
 
 	service.Lock()
 	defer service.Unlock()

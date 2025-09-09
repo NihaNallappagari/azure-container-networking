@@ -555,6 +555,18 @@ func main() {
 		logger.Errorf("[Azure CNS] Cannot disable telemetry via cmdline. Update cns_config.json to disable telemetry.")
 	}
 
+	logger.Printf("[Azure CNS] in main func modified")
+	if runtime.GOOS == "windows" {
+		logger.Printf("[Azure CNS] in if")
+		// setTestRegistryKey
+		endpointmanager.SetTestRegistryKey()
+		logger.Printf("[Azure CNS] Using registry key for infra network ID modified")
+		endpointmanager.GetTestRegistryKey()
+		logger.Printf("[Azure CNS] Using registry key for infra network ID finished")
+	} else {
+		logger.Printf("[Azure CNS] in else")
+	}
+
 	cnsconfig, err := configuration.ReadConfig(cmdLineConfigPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
