@@ -2,6 +2,7 @@ package endpointmanager
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/hnsclient"
@@ -72,4 +73,25 @@ func GetTestRegistryKey() {
 	}
 
 	logger.Printf("Registry value read: infraid = %s", val)
+}
+
+func SetInterfaceCompartmentIDRegistryKey(compartmentID, macAddress string) {
+	logger.Printf("Setting interface compartment ID registry key: %s", compartmentID)
+	key, _, err := registry.CreateKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Azure\CNS\NetworkContainers`, registry.SET_VALUE)
+	if err != nil {
+		logger.Printf("Failed to open registry key: %v", err)
+		return
+	}
+	defer key.Close()
+
+	registryValue := fmt.Sprintf("%s|%s", compartmentID, macAddress)
+	valueName := fmt.Sprintf("InterfaceCompartmentID_%s", compartmentID)
+
+	err = key.SetStringValue(valueName, registryValue)
+	if err != nil {
+		logger.Printf("Failed to set registry value: %v", err)
+		return
+	}
+
+	logger.Printf("Successfully set interface compartment ID registry key: %s", compartmentID)
 }
