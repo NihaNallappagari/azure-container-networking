@@ -198,6 +198,17 @@ var errNonExistentContainerStatus = errors.New("nonExistantContainerstatus")
 func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMode string) (int, error) {
 	outdatedNCs := map[string]struct{}{}
 	programmedNCs := map[string]struct{}{}
+	// logger.Printf("winDebug: SyncHostNCVersion called on %s", runtime.GOOS)
+	// err := service.setPrefixOnNICRegistry(true, "aa:bb:cc:dd:ee:ff")
+	// if err != nil {
+	// 	logger.Debugf("winDebug failed to enable PrefixOnNic on Windows: %w", err)
+	// }
+
+	// val, err := service.getPrefixOnNicEnabled()
+	// if err != nil {
+	// 	logger.Debugf("winDebug failed to get PrefixOnNic enabled: %w", err)
+	// }
+	// logger.Printf("winDebug: Enabled PrefixOnNic on Windows: %v", val)
 	for idx := range service.state.ContainerStatus {
 		// Will open a separate PR to convert all the NC version related variable to int. Change from string to int is a pain.
 		localNCVersion, err := strconv.Atoi(service.state.ContainerStatus[idx].HostVersion)
@@ -776,7 +787,12 @@ func (service *HTTPRestService) GetIMDSNCs(ctx context.Context) (map[string]stri
 		if ncID != "" {
 			ncs[ncID] = PrefixOnNicNCVersion // for prefix on nic version scenario nc version is 1
 		} else if runtime.GOOS == "windows" {
-			// endpointmanager.SetInterfaceCompartmentIDRegistryKey(ncID, iface.MacAddress.String())
+			logger.Printf("In windows, here is mac address: %s", iface.MacAddress.String())
+			//macAddress
+			err := service.setPrefixOnNICRegistry(true, iface.MacAddress.String())
+			if err != nil {
+				logger.Debugf("failed to enable PrefixOnNic on Windows: %w", err)
+			}
 		}
 	}
 

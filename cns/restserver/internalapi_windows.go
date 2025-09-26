@@ -6,15 +6,29 @@ import (
 	"time"
 
 	"github.com/Azure/azure-container-networking/cns"
+	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/cns/types"
 	"github.com/Microsoft/hcsshim"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
 	// timeout for powershell command to return the interfaces list
-	pwshTimeout = 120 * time.Second
+	pwshTimeout             = 120 * time.Second
+	hnsRegistryPath         = `SYSTEM\CurrentControlSet\Services\HNS\wcna_state\config`
+	prefixOnNicRegistryPath = `SYSTEM\CurrentControlSet\Services\HNS\wcna_state\config\PrefixOnNic`
+	infraNicIfName          = "eth0"
+	enableSNAT              = false
 )
+
+// HNS Registry configuration values
+// config := HNSRegistryConfig{
+// 	PrefixOnNicEnabled: true,
+// 	InfraNicMacAddress: macAddress,
+// 	InfraNicIfName:     infraNicIfName,
+// 	EnableSNAT:         false,
+// }
 
 var errUnsupportedAPI = errors.New("unsupported api")
 
@@ -75,3 +89,111 @@ func (service *HTTPRestService) getPrimaryNICMACAddress() (string, error) {
 	}
 	return macAddress, nil
 }
+
+// setRegistryValue sets a registry value at the specified path
+
+func (service *HTTPRestService) setPrefixOnNicEnabled(enabled bool) error {
+	return service.setRegistryValue(prefixOnNicRegistryPath, "enabled", enabled)
+}
+
+func (service *HTTPRestService) setInfraNicMacAddress(macAddress string) error {
+	return service.setRegistryValue(prefixOnNicRegistryPath, "infra_nic_mac_address", macAddress)
+}
+
+func (service *HTTPRestService) setInfraNicIfName(ifName string) error {
+	return service.setRegistryValue(prefixOnNicRegistryPath, "infra_nic_ifname", ifName)
+}
+
+func (service *HTTPRestService) setEnableSNAT(enabled bool) error {
+	return service.setRegistryValue(hnsRegistryPath, "EnableSNAT", enabled)
+}
+
+func (service *HTTPRestService) setPrefixOnNICRegistry(prefixOnNicEnabled bool, infraNicMacAddress string) error {
+	if err := service.setPrefixOnNicEnabled(prefixOnNicEnabled); err != nil {
+		return fmt.Errorf("failed to set PrefixOnNic enabled: %w", err)
+	}
+
+	if err := service.setInfraNicMacAddress(infraNicMacAddress); err != nil {
+		return fmt.Errorf("failed to set InfraNicMacAddress: %w", err)
+	}
+
+	if err := service.setInfraNicIfName(infraNicIfName); err != nil {
+		return fmt.Errorf("failed to set InfraNicIfName: %w", err)
+	}
+
+	if err := service.setEnableSNAT(enableSNAT); err != nil {
+		return fmt.Errorf("failed to set EnableSNAT: %w", err)
+	}
+
+	return nil
+}
+
+func (service *HTTPRestService) setRegistryValue(registryPath, keyName string, value interface{}) error {
+	key, _, err := registry.CreateKey(registry.LOCAL_MACHINE, registryPath, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("failed to create/open registry key %s: %w", registryPath, err)
+	}
+	defer key.Close()
+
+	switch v := value.(type) {
+	case string:
+		err = key.SetStringValue(keyName, v)
+	case bool:
+		dwordValue := uint32(0)
+		if v {
+			dwordValue = 1
+		}
+		err = key.SetDWordValue(keyName, dwordValue)
+	case uint32:
+		err = key.SetDWordValue(keyName, v)
+	case int:
+		err = key.SetDWordValue(keyName, uint32(v))
+	default:
+		return fmt.Errorf("unsupported value type for registry key %s: %T", keyName, value)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to set registry value '%s': %w", keyName, err)
+	}
+
+	logger.Printf("[setRegistryValue] Set %s\\%s = %v", registryPath, keyName, value)
+	return nil
+}
+
+func (service *HTTPRestService) getPrefixOnNicEnabled() (bool, error) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, prefixOnNicRegistryPath, registry.QUERY_VALUE)
+	if err != nil {
+		return false, nil // Key doesn't exist, default to false
+	}
+	defer key.Close()
+
+	value, _, err := key.GetIntegerValue("enabled")
+	if err != nil {
+		return false, nil // Value doesn't exist, default to false
+	}
+
+	return value == 1, nil
+}
+
+// func (service *HTTPRestService) getCurrentHNSRegistryConfig() (HNSRegistryConfig, error) {
+//     config := HNSRegistryConfig{}
+
+//     enabled, err := service.getPrefixOnNicEnabled()
+//     if err != nil {
+//         return config, fmt.Errorf("failed to read PrefixOnNic enabled: %w", err)
+//     }
+//     config.PrefixOnNicEnabled = enabled
+
+//     // macAddress, _ := service.getInfraNicMacAddress() // Ignore error for optional value
+//     // config.InfraNicMacAddress = macAddress
+
+//     // enableSNAT, err := service.getEnableSNAT()
+//     // if err != nil {
+//     //     return config, fmt.Errorf("failed to read EnableSNAT: %w", err)
+//     // }
+//     // config.EnableSNAT = enableSNAT
+
+//     // config.InfraNicIfName = infraNicIfName // This is constant
+
+//     return config, nil
+// }
