@@ -1,6 +1,8 @@
 module github.com/Azure/azure-container-networking
 
-go 1.24.1
+go 1.23.0
+
+toolchain go1.23.3
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.19.0
@@ -251,13 +253,14 @@ require (
 )
 
 replace (
+	github.com/Azure/azure-container-networking/zapai => ./zapai
 	github.com/onsi/ginkgo => github.com/onsi/ginkgo v1.12.0
 	github.com/onsi/gomega => github.com/onsi/gomega v1.10.0
 )
 
-retract (
-	v1.16.17 // contains only retractions, new version to retract 1.15.22.
-	v1.16.16 // contains only retractions, has to be newer than 1.16.15.
-	v1.16.15 // typo in the version number.
-	v1.15.22 // typo in the version number.
-)
+// retract (
+//	v1.16.17 // contains only retractions, new version to retract 1.15.22.
+//	v1.16.16 // contains only retractions, has to be newer than 1.16.15.
+//	v1.16.15 // typo in the version number.
+//	v1.15.22 // typo in the version number.
+// )
