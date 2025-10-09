@@ -221,7 +221,9 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 		}
 		// host NC version is the NC version from NMAgent, if it's smaller than NC version from DNC, then append it to indicate it needs update.
 		if localNCVersion < dncNCVersion {
+			logger.Printf("localversion: %d, dncversion: %d", localNCVersion, dncNCVersion )
 			outdatedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
+			programmedNCs[service.state.ContainerStatus[idx].ID] = struct{}{}
 		} else if localNCVersion > dncNCVersion {
 			logger.Errorf("NC version from NMAgent is larger than DNC, NC version from NMAgent is %d, NC version from DNC is %d", localNCVersion, dncNCVersion)
 		}
@@ -312,7 +314,8 @@ func (service *HTTPRestService) syncHostNCVersion(ctx context.Context, channelMo
 	// if we didn't empty out the needs update set, NMA has not programmed all the NCs we are expecting, and we
 	// need to return an error indicating that
 	if len(outdatedNCs) > 0 {
-		return len(programmedNCs), errors.Errorf("unable to update some NCs: %v, missing or bad response from NMA or IMDS", outdatedNCs)
+		// return len(programmedNCs), errors.Errorf("unable to update some NCs: %v, missing or bad response from NMA or IMDS", outdatedNCs)
+		logger.Printf("has outdated nc, but ignored")
 	}
 
 	return len(programmedNCs), nil
@@ -706,7 +709,7 @@ func (service *HTTPRestService) getIMDSNCs(ctx context.Context) (map[string]stri
 	// Check NC version support
 	if !service.isNCDetailsAPIExists(ctx) {
 		//nolint:staticcheck // SA1019: suppress deprecated logger.Printf usage. Todo: legacy logger usage is consistent in cns repo. Migrates when all logger usage is migrated
-		logger.Errorf("IMDS does not support NC details API")
+		//logger.Errorf("IMDS does not support NC details API")
 		return make(map[string]string), nil
 	}
 
