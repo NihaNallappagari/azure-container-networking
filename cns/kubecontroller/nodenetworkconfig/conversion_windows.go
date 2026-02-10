@@ -71,5 +71,19 @@ func createNCRequestFromStaticNCHelper(nc v1alpha.NetworkContainer, primaryIPPre
 		},
 		NCStatus:           nc.Status,
 		SwiftV2PrefixOnNic: isSwiftV2 && nc.Type == v1alpha.VNETBlock,
+		NetworkInterfaceInfo: cns.NetworkInterfaceInfo{
+			NICType:    nicTypeFromNC(nc, isSwiftV2),
+			MACAddress: nc.MacAddress,
+		},
 	}, nil
+}
+
+// nicTypeFromNC determines the NIC type for the network container.
+// For prefix-on-NIC (SwiftV2 + VNETBlock), the NC is delegated NIC.
+// All other NCs use the default infra NIC.
+func nicTypeFromNC(nc v1alpha.NetworkContainer, isSwiftV2 bool) cns.NICType {
+	if isSwiftV2 && nc.Type == v1alpha.VNETBlock {
+		return cns.DelegatedVMNIC
+	}
+	return cns.InfraNIC
 }

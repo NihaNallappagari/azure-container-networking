@@ -722,11 +722,18 @@ func (plugin *NetPlugin) createEpInfo(opt *createEpInfoOpt) (*network.EndpointIn
 		endpointID = plugin.nm.GetEndpointID(opt.args.ContainerID, ifName)
 	}
 
+	// For delegated NIC (FrontendNIC / prefix-on-NIC), use the resolved master interface name
+	// as the adapter name so that HNS creates the network on the delegated NIC instead of the infra NIC.
+	adapterName := opt.ipamAddConfig.nwCfg.AdapterName
+	if opt.ifInfo.NICType == cns.NodeNetworkInterfaceFrontendNIC && adapterName == "" {
+		adapterName = masterIfName
+	}
+
 	endpointInfo := network.EndpointInfo{
 		NetworkID:                     opt.networkID,
 		Mode:                          opt.ipamAddConfig.nwCfg.Mode,
 		MasterIfName:                  masterIfName,
-		AdapterName:                   opt.ipamAddConfig.nwCfg.AdapterName,
+		AdapterName:                   adapterName,
 		BridgeName:                    opt.ipamAddConfig.nwCfg.Bridge,
 		NetworkPolicies:               networkPolicies, // nw and ep policies separated to avoid possible conflicts
 		NetNs:                         opt.ipamAddConfig.args.Netns,

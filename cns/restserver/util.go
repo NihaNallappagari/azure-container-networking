@@ -849,8 +849,15 @@ func (service *HTTPRestService) populateIPConfigInfoUntransacted(ipConfigStatus 
 	podIPInfo.HostPrimaryIPInfo.Subnet = primaryHostInterface.Subnet
 	podIPInfo.HostPrimaryIPInfo.Gateway = primaryHostInterface.Gateway
 	podIPInfo.MacAddress = ncStatus.CreateNetworkContainerRequest.NetworkInterfaceInfo.MACAddress
-	podIPInfo.NICType = cns.InfraNIC
-
+	// Use the NIC type from the NC request if explicitly set (e.g., DelegatedVMNIC for prefix-on-NIC),
+	// otherwise default to InfraNIC for backward compatibility.
+	if ncStatus.CreateNetworkContainerRequest.NetworkInterfaceInfo.NICType != "" {
+		podIPInfo.NICType = ncStatus.CreateNetworkContainerRequest.NetworkInterfaceInfo.NICType
+		logger.Printf("[Azure-CNS] Populating ncStatus.CreateNetworkContainerRequest.NetworkInterfaceInfo: %s", ncStatus.CreateNetworkContainerRequest.NetworkInterfaceInfo)
+	} else {
+		podIPInfo.NICType = cns.InfraNIC
+	}
+	logger.Printf("[Azure-CNS] Populating podIPInfo.NICType: %s", podIPInfo.NICType)
 	return nil
 }
 
