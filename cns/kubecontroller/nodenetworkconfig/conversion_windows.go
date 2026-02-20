@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/Azure/azure-container-networking/cns"
+	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/crd/nodenetworkconfig/api/v1alpha"
 	"github.com/pkg/errors"
 )
@@ -60,7 +61,7 @@ func createNCRequestFromStaticNCHelper(nc v1alpha.NetworkContainer, primaryIPPre
 
 	delete(secondaryIPConfigs, lastAddr.String())
 
-	return &cns.CreateNetworkContainerRequest{
+	req := &cns.CreateNetworkContainerRequest{
 		SecondaryIPConfigs:   secondaryIPConfigs,
 		NetworkContainerid:   nc.ID,
 		NetworkContainerType: cns.Docker,
@@ -71,5 +72,10 @@ func createNCRequestFromStaticNCHelper(nc v1alpha.NetworkContainer, primaryIPPre
 		},
 		NCStatus:           nc.Status,
 		SwiftV2PrefixOnNic: isSwiftV2 && nc.Type == v1alpha.VNETBlock,
-	}, nil
+		NetworkInterfaceInfo: cns.NetworkInterfaceInfo{
+			MACAddress: nc.MacAddress,
+		},
+	}
+	logger.Printf("[hnsDebugFix][cns-rc] Created NC request for NC %s with MAC %s, NCType %s, SwiftV2PrefixOnNic %v", nc.ID, nc.MacAddress, nc.Type, req.SwiftV2PrefixOnNic)
+	return req, nil
 }

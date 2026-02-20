@@ -636,6 +636,10 @@ func (plugin *NetPlugin) Add(args *cniSkel.CmdArgs) error {
 func (plugin *NetPlugin) findMasterInterface(opt *createEpInfoOpt) string {
 	switch opt.ifInfo.NICType {
 	case cns.InfraNIC:
+		// for prefix-on-NIC, use the delegated NIC's MAC to find the master interface
+		if len(opt.ifInfo.MacAddress) > 0 {
+			return plugin.findInterfaceByMAC(opt.ifInfo.MacAddress.String())
+		}
 		return plugin.findMasterInterfaceBySubnet(opt.ipamAddConfig.nwCfg, &opt.ifInfo.HostSubnetPrefix)
 	case cns.NodeNetworkInterfaceFrontendNIC:
 		return plugin.findInterfaceByMAC(opt.ifInfo.MacAddress.String())

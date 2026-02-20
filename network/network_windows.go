@@ -6,6 +6,7 @@ package network
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -240,7 +241,8 @@ func (nm *networkManager) configureHcnNetwork(nwInfo *EndpointInfo, extIf *exter
 	// per hns team, the hns calls fails if passed a vSwitch interface
 	// Pass adapter name here if it is not empty, this is cause if we don't tell HNS which adapter to use
 	// it will just pick one randomly, this is a problem for customers that have multiple adapters
-	if nwInfo.AdapterName != "" || !strings.HasPrefix(extIf.Name, vEthernetAdapterPrefix) {
+	// For delegated NIC (FrontendNIC or prefix-on-NIC with MAC), always set adapter policy to ensure HNS network is created on the correct NIC
+	if nwInfo.NICType == cns.NodeNetworkInterfaceFrontendNIC || len(nwInfo.MacAddress) > 0 || nwInfo.AdapterName != "" || !strings.HasPrefix(extIf.Name, vEthernetAdapterPrefix) {
 		var adapterName string
 		if nwInfo.AdapterName != "" {
 			adapterName = nwInfo.AdapterName
@@ -289,13 +291,28 @@ func (nm *networkManager) configureHcnNetwork(nwInfo *EndpointInfo, extIf *exter
 
 	// Populate subnets.
 	for _, subnet := range nwInfo.Subnets {
+		// Use the correct default route CIDR based on subnet IP family
+		routeCIDR := defaultRouteCIDR
+		gatewayStr := subnet.Gateway.String()
+		if subnet.Family == platform.AfINET6 {
+			routeCIDR = defaultIPv6Route
+			// Safety net: if the gateway is IPv4 but the subnet is IPv6, use the overlay IPv6 gateway.
+			// This can happen in dual-stack prefix-on-NIC where the NC only provides an IPv4 DefaultGateway.
+			if gw := net.ParseIP(gatewayStr); gw != nil && gw.To4() != nil {
+				logger.Info("[hnsDebugFix] IPv6 subnet has IPv4 gateway, replacing with IPv6 default next hop",
+					zap.String("originalGateway", gatewayStr),
+					zap.String("newGateway", defaultIPv6NextHop))
+				gatewayStr = defaultIPv6NextHop
+			}
+		}
+
 		hnsSubnet := hcn.Subnet{
 			IpAddressPrefix: subnet.Prefix.String(),
 			// Set the Gateway route
 			Routes: []hcn.Route{
 				{
-					NextHop:           subnet.Gateway.String(),
-					DestinationPrefix: defaultRouteCIDR,
+					NextHop:           gatewayStr,
+					DestinationPrefix: routeCIDR,
 				},
 			},
 		}

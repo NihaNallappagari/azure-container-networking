@@ -311,14 +311,13 @@ func (nw *network) configureHcnEndpoint(epInfo *EndpointInfo) (*hcn.HostComputeE
 		},
 	}
 
-	// macAddress type for InfraNIC is like "60:45:bd:12:45:65"
-	// if NICType is delegatedVMNIC or AccelnetNIC, convert the macaddress format
-	macAddress := epInfo.MacAddress.String()
-	if epInfo.NICType == cns.NodeNetworkInterfaceFrontendNIC {
-		// convert the format of macAddress that HNS can accept, i.e, "60-45-bd-12-45-65" if NIC type is delegated NIC
-		macAddress = strings.Join(strings.Split(macAddress, ":"), "-")
+	// Only set MAC on the endpoint for delegated/accelnet NICs (FrontendNIC) where the NIC is passed through.
+	// For InfraNIC (including prefix-on-NIC), the MAC is only used to find the host master interface;
+	// HNS auto-assigns a virtual MAC for L2Bridge endpoints. Setting the physical adapter MAC would fail.
+	if epInfo.NICType == cns.NodeNetworkInterfaceFrontendNIC && len(epInfo.MacAddress) > 0 {
+		// convert colon-separated to dash-separated format that HNS expects (e.g., "60-45-bd-12-45-65")
+		hcnEndpoint.MacAddress = strings.Join(strings.Split(epInfo.MacAddress.String(), ":"), "-")
 	}
-	hcnEndpoint.MacAddress = macAddress
 
 	if epPolicies, err := policy.GetHcnEndpointPolicies(policy.EndpointPolicy, epInfo.EndpointPolicies, epInfo.Data, epInfo.EnableSnatForDns, epInfo.EnableMultiTenancy, epInfo.NATInfo); err == nil {
 		hcnEndpoint.Policies = append(hcnEndpoint.Policies, epPolicies...)
@@ -338,8 +337,19 @@ func (nw *network) configureHcnEndpoint(epInfo *EndpointInfo) (*hcn.HostComputeE
 	}
 
 	for _, route := range epInfo.Routes {
+		nextHop := route.Gw.String()
+		// Safety net: if the route destination is IPv6 but the gateway is IPv4,
+		// use the overlay IPv6 default next hop. This can happen in dual-stack
+		// prefix-on-NIC where the NC only provides an IPv4 DefaultGateway.
+		if route.Dst.IP != nil && route.Dst.IP.To4() == nil && route.Gw != nil && route.Gw.To4() != nil {
+			logger.Info("[hnsDebugFix] Endpoint IPv6 route has IPv4 gateway, replacing with IPv6 default next hop",
+				zap.String("routeDst", route.Dst.String()),
+				zap.String("originalGateway", nextHop),
+				zap.String("newGateway", defaultIPv6NextHop))
+			nextHop = defaultIPv6NextHop
+		}
 		hcnRoute := hcn.Route{
-			NextHop:           route.Gw.String(),
+			NextHop:           nextHop,
 			DestinationPrefix: route.Dst.String(),
 		}
 
@@ -448,7 +458,7 @@ func (nw *network) newEndpointImplHnsV2(cli apipaClient, epInfo *EndpointInfo) (
 	}
 
 	// Create the HCN endpoint.
-	logger.Info("Creating hcn endpoint", zap.Any("hcnEndpoint", hcnEndpoint), zap.String("computenetwork", hcnEndpoint.HostComputeNetwork))
+	logger.Info("Creating hcn endpoint modified 2", zap.Any("hcnEndpoint", hcnEndpoint), zap.String("computenetwork", hcnEndpoint.HostComputeNetwork))
 	hnsResponse, err := Hnsv2.CreateEndpoint(hcnEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create endpoint: %s due to error: %v", hcnEndpoint.Name, err)

@@ -333,6 +333,13 @@ func GetHcnOutBoundNATPolicy(policy Policy, epInfoData map[string]interface{}) (
 
 	if exceptionList != nil {
 		for _, ipAddress := range exceptionList {
+			// HNS does not support IPv6 CIDRs in OutBoundNAT Exceptions on L2Bridge networks.
+			// Filter them out to avoid "policy configuration is invalid" errors.
+			if ip, _, err := net.ParseCIDR(ipAddress); err == nil && ip.To4() == nil {
+				logger.Info("Skipping IPv6 CIDR in OutBoundNAT Exceptions (unsupported by HNS)",
+					zap.String("cidr", ipAddress))
+				continue
+			}
 			outBoundNATPolicySetting.Exceptions = append(outBoundNATPolicySetting.Exceptions, ipAddress)
 		}
 	}
@@ -340,6 +347,11 @@ func GetHcnOutBoundNATPolicy(policy Policy, epInfoData map[string]interface{}) (
 	if epInfoData[CnetAddressSpace] != nil {
 		if cnetAddressSpace := epInfoData[CnetAddressSpace].([]string); cnetAddressSpace != nil {
 			for _, ipAddress := range cnetAddressSpace {
+				if ip, _, err := net.ParseCIDR(ipAddress); err == nil && ip.To4() == nil {
+					logger.Info("Skipping IPv6 CIDR in OutBoundNAT CnetAddressSpace Exceptions (unsupported by HNS)",
+						zap.String("cidr", ipAddress))
+					continue
+				}
 				outBoundNATPolicySetting.Exceptions = append(outBoundNATPolicySetting.Exceptions, ipAddress)
 			}
 		}

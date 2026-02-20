@@ -84,7 +84,8 @@ func NewCNSInvoker(podName, namespace string, cnsClient cnsclient, executionMode
 	}
 }
 
-// Add uses the requestipconfig API in cns, and returns ipv4 and a nil ipv6 as CNS doesn't support IPv6 yet
+// Add uses the requestipconfig API in cns to request IP configs for a pod.
+// For dual-stack clusters, CNS returns both IPv4 and IPv6 PodIPInfo entries with the same NIC MAC.
 func (invoker *CNSIPAMInvoker) Add(addConfig IPAMAddConfig) (IPAMAddResult, error) {
 	// Parse Pod arguments.
 	podInfo := cns.KubernetesPodInfo{
@@ -146,6 +147,12 @@ func (invoker *CNSIPAMInvoker) Add(addConfig IPAMAddConfig) (IPAMAddResult, erro
 
 	addResult := IPAMAddResult{interfaceInfo: make(map[string]network.InterfaceInfo)}
 	numInterfacesWithDefaultRoutes := 0
+
+	logger.Info("[hnsDebugFix] Received IP configs response from CNS",
+		zap.Int("podIPInfoCount", len(response.PodIPInfo)),
+		zap.Any("pod", podInfo),
+		zap.Int("returnCode", int(response.Response.ReturnCode)),
+		zap.String("message", response.Response.Message))
 
 	for i := 0; i < len(response.PodIPInfo); i++ {
 		info := IPResultInfo{
@@ -415,6 +422,16 @@ func configureDefaultAddResult(info *IPResultInfo, addConfig *IPAMAddConfig, add
 		}
 	}
 
+	// If the pod IP is IPv6 but the NC gateway is IPv4, use the overlay IPv6 gateway.
+	// This can happen in dual-stack prefix-on-NIC where the NC only has an IPv4 DefaultGateway.
+	isIPv6Pod := net.ParseIP(info.podIPAddress).To4() == nil
+	if isIPv6Pod && ncgw.To4() != nil {
+		logger.Info("[hnsDebugFix] NC gateway is IPv4 but pod IP is IPv6, using overlay IPv6 gateway",
+			zap.String("ncGateway", ncgw.String()),
+			zap.String("podIP", info.podIPAddress))
+		ncgw = net.ParseIP(overlayGatewayV6IP)
+	}
+
 	// get the name of the primary IP address
 	_, hostIPNet, err := net.ParseCIDR(info.hostSubnet)
 	if err != nil {
@@ -455,7 +472,7 @@ func configureDefaultAddResult(info *IPResultInfo, addConfig *IPAMAddConfig, add
 
 		// if we have multiple infra ip result infos, we effectively append routes and ip configs to that same interface info each time
 		// the host subnet prefix (in ipv4 or ipv6) will always refer to the same interface regardless of which ip result info we look at
-		addResult.interfaceInfo[key] = network.InterfaceInfo{
+		ifInfo := network.InterfaceInfo{
 			NICType:           cns.InfraNIC,
 			SkipDefaultRoutes: info.skipDefaultRoutes,
 			IPConfigs:         ipConfigs,
@@ -463,6 +480,17 @@ func configureDefaultAddResult(info *IPResultInfo, addConfig *IPAMAddConfig, add
 			HostSubnetPrefix:  *hostIPNet,
 			EndpointPolicies:  info.endpointPolicies,
 		}
+		// for prefix-on-NIC, the MAC address from CNS identifies the delegated NIC
+		if info.macAddress != "" {
+			logger.Info("[hnsDebugFix] Parsing delegated NIC MAC for InfraNIC prefix-on-NIC", zap.String("macAddress", info.macAddress))
+			mac, parseErr := net.ParseMAC(info.macAddress)
+			if parseErr == nil {
+				ifInfo.MacAddress = mac
+			} else {
+				logger.Error("[hnsDebugFix] Failed to parse delegated NIC MAC for InfraNIC", zap.String("macAddress", info.macAddress), zap.Error(parseErr))
+			}
+		}
+		addResult.interfaceInfo[key] = ifInfo
 	}
 
 	// set subnet prefix for host vm
