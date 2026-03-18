@@ -46,6 +46,7 @@ type CNSIPAMInvoker struct {
 type IPResultInfo struct {
 	podIPAddress       string
 	ncSubnetPrefix     uint8
+	podSubnetPrefix    uint8
 	ncPrimaryIP        string
 	ncGatewayIPAddress string
 	hostSubnet         string
@@ -151,6 +152,7 @@ func (invoker *CNSIPAMInvoker) Add(addConfig IPAMAddConfig) (IPAMAddResult, erro
 		info := IPResultInfo{
 			podIPAddress:       response.PodIPInfo[i].PodIPConfig.IPAddress,
 			ncSubnetPrefix:     response.PodIPInfo[i].NetworkContainerPrimaryIPConfig.IPSubnet.PrefixLength,
+			podSubnetPrefix:    response.PodIPInfo[i].PodIPConfig.PrefixLength,
 			ncPrimaryIP:        response.PodIPInfo[i].NetworkContainerPrimaryIPConfig.IPSubnet.IPAddress,
 			ncGatewayIPAddress: response.PodIPInfo[i].NetworkContainerPrimaryIPConfig.GatewayIPAddress,
 			hostSubnet:         response.PodIPInfo[i].HostPrimaryIPInfo.Subnet,
@@ -164,7 +166,17 @@ func (invoker *CNSIPAMInvoker) Add(addConfig IPAMAddConfig) (IPAMAddResult, erro
 			endpointPolicies:   response.PodIPInfo[i].EndpointPolicies,
 		}
 
-		logger.Info("Received info for pod",
+		logger.Info("[windows_swiftv1_fix] Raw PodIPInfo from CNS",
+			zap.Int("index", i),
+			zap.String("podIP", response.PodIPInfo[i].PodIPConfig.IPAddress),
+			zap.Uint8("podIPPrefixLen", response.PodIPInfo[i].PodIPConfig.PrefixLength),
+			zap.String("ncPrimaryIP", response.PodIPInfo[i].NetworkContainerPrimaryIPConfig.IPSubnet.IPAddress),
+			zap.Uint8("ncPrefixLen", response.PodIPInfo[i].NetworkContainerPrimaryIPConfig.IPSubnet.PrefixLength),
+			zap.String("ncGateway", response.PodIPInfo[i].NetworkContainerPrimaryIPConfig.GatewayIPAddress),
+			zap.String("nicType", string(response.PodIPInfo[i].NICType)),
+		)
+
+		logger.Info("[windows_swiftv1_fix] Received info for pod",
 			zap.Any("ipInfo", response.PodIPInfo[i]),
 			zap.Any("podInfo", podInfo))
 
@@ -361,6 +373,23 @@ func (invoker *CNSIPAMInvoker) Delete(address *net.IPNet, nwCfg *cni.NetworkConf
 	return nil
 }
 
+// getIPv6GatewayFromSubnet derives the IPv6 gateway as the first usable IP in the pod subnet.
+// This mirrors how overlay's getOverlayGateway computes the IPv4 gateway (subnet base + 1).
+// For example, for subnet fd00:aec6:6946::/64, this returns fd00:aec6:6946::1.
+func getIPv6GatewayFromSubnet(podSubnet *net.IPNet) (net.IP, error) {
+	ncgw := make(net.IP, len(podSubnet.IP))
+	copy(ncgw, podSubnet.IP)
+	// Increment the last byte to get the first usable IP (::1)
+	ncgw[len(ncgw)-1]++
+	if !podSubnet.Contains(ncgw) {
+		return nil, errors.Wrap(errInvalidArgs, "failed to derive IPv6 gateway from pod subnet "+podSubnet.String())
+	}
+	logger.Info("[swiftv1_fix] Derived IPv6 gateway from pod subnet",
+		zap.String("podSubnet", podSubnet.String()),
+		zap.String("derivedGateway", ncgw.String()))
+	return ncgw, nil
+}
+
 func getRoutes(cnsRoutes []cns.Route, skipDefaultRoutes bool) ([]network.RouteInfo, error) {
 	routes := make([]network.RouteInfo, 0)
 	for _, route := range cnsRoutes {
@@ -391,11 +420,21 @@ func configureDefaultAddResult(info *IPResultInfo, addConfig *IPAMAddConfig, add
 		addConfig.options[network.SNATIPKey] = info.ncPrimaryIP
 	}
 
-	ip, ncIPNet, err := net.ParseCIDR(info.podIPAddress + "/" + fmt.Sprint(info.ncSubnetPrefix))
+	// For IPv6 in SwiftV1 dualstack, CNS sends wrong prefix (/16) and IPv4 gateway.
+	// Hardcode the IPv6 gateway but keep the prefix from CNS.
+	subnetPrefix := info.ncSubnetPrefix
+	isIPv6 := net.ParseIP(info.podIPAddress).To4() == nil
+
+	ip, ncIPNet, err := net.ParseCIDR(info.podIPAddress + "/" + fmt.Sprint(subnetPrefix))
 	if ip == nil || err != nil {
 		return errors.Wrap(err, "Unable to parse IP from response: "+info.podIPAddress+" with err %w")
 	}
-
+	logger.Info("[swiftv1_fix] Parsed CIDR result",
+		zap.String("ip", ip.String()),
+		zap.String("ncIPNet", ncIPNet.String()),
+		zap.String("mask", fmt.Sprintf("%v", ncIPNet.Mask)),
+		zap.Uint8("subnetPrefix", subnetPrefix),
+	)
 	ncgw := net.ParseIP(info.ncGatewayIPAddress)
 	if ncgw == nil {
 		// TODO: Remove v4overlay and dualstackoverlay options, after 'overlay' rolls out in AKS-RP
@@ -409,10 +448,23 @@ func configureDefaultAddResult(info *IPResultInfo, addConfig *IPAMAddConfig, add
 				return err
 			}
 		} else if net.ParseIP(info.podIPAddress).To16() != nil {
-			ncgw = net.ParseIP(overlayGatewayV6IP)
+			ncgw, err = getIPv6GatewayFromSubnet(ncIPNet)
+			if err != nil {
+				return err
+			}
 		} else {
 			return errors.Wrap(err, "No podIPAddress is found: %w")
 		}
+	}
+
+	// For IPv6, hardcode the gateway to fd00:aec6:6946:1::1.
+	// CNS returns an IPv4 gateway for IPv6 pods in SwiftV1 dualstack.
+	if isIPv6 {
+		ncgw = net.ParseIP("fd00:aec6:6946:1::1")
+		logger.Info("[swiftv1_fix] Hardcoding IPv6 gateway",
+			zap.String("podIP", info.podIPAddress),
+			zap.String("originalGateway", info.ncGatewayIPAddress),
+			zap.String("hardcodedGateway", ncgw.String()))
 	}
 
 	// get the name of the primary IP address

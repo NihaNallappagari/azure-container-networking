@@ -133,7 +133,18 @@ func (nm *networkManager) newNetworkImplHnsV1(nwInfo *EndpointInfo, extIf *exter
 	}
 
 	// Populate subnets.
+
 	for _, subnet := range nwInfo.Subnets {
+		// HARDCODE: force IPv6 gateway to overlay default gateway for testing
+		// gwStr := subnet.Gateway.String()
+		// if subnet.Family == platform.AfINET6 {
+		// 	gwStr = "fe80::1234:5678:9abc"
+		// 	logger.Info("[configureHcnNetwork] HARDCODED IPv6 gateway for testing",
+		// 		zap.String("originalGateway", subnet.Gateway.String()),
+		// 		zap.String("hardcodedGateway", gwStr),
+		// 	)
+		// }
+
 		hnsSubnet := hcsshim.Subnet{
 			AddressPrefix:  subnet.Prefix.String(),
 			GatewayAddress: subnet.Gateway.String(),
@@ -289,13 +300,33 @@ func (nm *networkManager) configureHcnNetwork(nwInfo *EndpointInfo, extIf *exter
 
 	// Populate subnets.
 	for _, subnet := range nwInfo.Subnets {
+		nextHop := subnet.Gateway.String()
+		destPrefix := defaultRouteCIDR
+		logger.Info("subnet is", zap.Int("family", int(subnet.Family)))
+		logger.Info("subnet family:", zap.Bool("isIPv6", subnet.Family == platform.AfINET6))
+		if subnet.Family == platform.AfINET6 {
+			nextHop = subnet.Gateway.String()
+			destPrefix = defaultIPv6Route
+			logger.Info("[swiftv1_fix] Using subnet gateway for IPv6 next hop instead of hardcoded link-local",
+				zap.String("nextHop", nextHop),
+				zap.String("subnetPrefix", subnet.Prefix.String()))
+		}
+
+		logger.Info("[configureHcnNetwork] Populating subnet",
+			zap.String("ipAddressPrefix", subnet.Prefix.String()),
+			zap.String("originalGateway", subnet.Gateway.String()),
+			zap.String("nextHop", nextHop),
+			zap.String("destPrefix", destPrefix),
+			zap.Int("family", int(subnet.Family)),
+		)
+
 		hnsSubnet := hcn.Subnet{
 			IpAddressPrefix: subnet.Prefix.String(),
 			// Set the Gateway route
 			Routes: []hcn.Route{
 				{
-					NextHop:           subnet.Gateway.String(),
-					DestinationPrefix: defaultRouteCIDR,
+					NextHop:           nextHop,
+					DestinationPrefix: destPrefix,
 				},
 			},
 		}
@@ -359,7 +390,7 @@ func (nm *networkManager) newNetworkImplHnsV2(nwInfo *EndpointInfo, extIf *exter
 	if err != nil {
 		// if network not found, create the HNS network.
 		if errors.As(err, &hcn.NetworkNotFoundError{}) {
-			logger.Info("Creating hcn network", zap.Any("hcnNetwork", hcnNetwork))
+			logger.Info("Creating hcn network latest", zap.Any("hcnNetwork", hcnNetwork))
 			hnsResponse, err = Hnsv2.CreateNetwork(hcnNetwork)
 			if err != nil {
 				return nil, fmt.Errorf("Failed to create hcn network: %s due to error: %v", hcnNetwork.Name, err)
